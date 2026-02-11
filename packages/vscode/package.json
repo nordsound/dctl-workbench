@@ -1,0 +1,206 @@
+{
+  "name": "dctl-workbench",
+  "displayName": "DCTL Workbench",
+  "description": "DCTL development environment with color pipeline for VSCode",
+  "version": "0.1.0",
+  "publisher": "nordsound",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nordsound/dctl-workbench"
+  },
+  "private": true,
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "dctl",
+    "davinci",
+    "resolve",
+    "color",
+    "grading",
+    "aces",
+    "openexr",
+    "exr"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "dctl",
+        "aliases": [
+          "DCTL",
+          "DaVinci Color Transform Language"
+        ],
+        "extensions": [
+          ".dctl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dctl",
+        "scopeName": "source.dctl",
+        "path": "./syntaxes/dctl.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "dctl",
+        "path": "./snippets/dctl.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "dctlWorkbench.exrEditor",
+        "displayName": "EXR Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.exr"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "dctlWorkbench.openPreview",
+        "title": "Preview in EXR Viewer",
+        "category": "DCTL Workbench",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "dctlWorkbench.copyToResolve",
+        "title": "Copy to DaVinci Resolve",
+        "category": "DCTL Workbench",
+        "icon": "$(folder-opened)"
+      }
+    ],
+    "configuration": {
+      "title": "DCTL Workbench",
+      "properties": {
+        "dctlWorkbench.dctl.autoPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update preview when DCTL file changes"
+        },
+        "dctlWorkbench.dctl.previewDebounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Debounce time for auto preview (ms)"
+        },
+        "dctlWorkbench.colorSpace.working": {
+          "type": "string",
+          "default": "ACES2065-1",
+          "enum": [
+            "ACES2065-1",
+            "ACEScg",
+            "Linear sRGB",
+            "Linear Rec.2020"
+          ],
+          "description": "Working color space"
+        },
+        "dctlWorkbench.colorSpace.display": {
+          "type": "string",
+          "default": "sRGB",
+          "enum": [
+            "sRGB",
+            "Display P3",
+            "Rec.709"
+          ],
+          "description": "Display color space"
+        },
+        "dctlWorkbench.preview.renderer": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "webgpu",
+            "webgl2",
+            "cpu"
+          ],
+          "description": "Renderer for preview"
+        },
+        "dctlWorkbench.export.exrCompression": {
+          "type": "string",
+          "default": "ZIP",
+          "enum": [
+            "NONE",
+            "RLE",
+            "ZIPS",
+            "ZIP",
+            "PIZ"
+          ],
+          "description": "EXR compression method"
+        },
+        "dctlWorkbench.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable DCTL syntax checking and diagnostics"
+        },
+        "dctlWorkbench.resolve.dctlDirectory": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to DaVinci Resolve DCTL directory. Leave empty to use the OS default:\n- **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DCTL/`\n- **Windows**: `C:\\ProgramData\\Blackmagic Design\\DaVinci Resolve\\Support\\LUT\\DCTL\\`\n- **Linux**: `/opt/resolve/LUT/DCTL/`"
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "when": "resourceExtname == .dctl",
+          "command": "dctlWorkbench.openPreview",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceExtname == .dctl",
+          "command": "dctlWorkbench.copyToResolve",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package:build",
+    "package:build": "npm run copy-wasm && node esbuild.config.mjs --production",
+    "compile": "tsc -p ./ && npm run copy-wasm && npm run bundle",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "copy-wasm": "mkdir -p out/wasm && cp -r ../../wasm/* out/wasm/ && cp ../../node_modules/web-tree-sitter/web-tree-sitter.wasm out/wasm/",
+    "bundle": "node esbuild.config.mjs",
+    "clean": "rm -rf out",
+    "package": "vsce package",
+    "test": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
+    "test:unit": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
+    "compile:test": "tsc -p tsconfig.test.json",
+    "pretest:integration": "npm run compile && npm run compile:test",
+    "test:integration": "bash scripts/run-integration-tests.sh",
+    "test:integration:legacy": "node ./out/src/test/runTest.js"
+  },
+  "dependencies": {
+    "@dctl-workbench/core": "*",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.26.5"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.13",
+    "@types/vscode": "^1.109.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "@webgpu/types": "^0.1.69",
+    "esbuild": "^0.27.3",
+    "glob": "^13.0.2",
+    "mocha": "^11.7.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

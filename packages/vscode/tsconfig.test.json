@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "mocha", "vscode", "@webgpu/types"],
+    "composite": false,
+    "rootDir": ".",
+    "outDir": "out"
+  },
+  "include": ["src/test/**/*"],
+  "exclude": ["node_modules"]
+}

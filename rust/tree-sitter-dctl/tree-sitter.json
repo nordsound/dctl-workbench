@@ -1,0 +1,19 @@
+{
+  "grammars": [
+    {
+      "name": "dctl",
+      "scope": "source.dctl",
+      "file-types": ["dctl"],
+      "path": "."
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT"
+  },
+  "bindings": {
+    "c": true,
+    "node": true,
+    "wasm": true
+  }
+}

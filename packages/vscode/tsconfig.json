@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "isolatedModules": false,
+    "composite": true,
+    "types": ["node", "vscode", "@webgpu/types"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "out", "src/webview/**/*", "src/test/**/*"],
+  "references": [
+    { "path": "../core" }
+  ]
+}

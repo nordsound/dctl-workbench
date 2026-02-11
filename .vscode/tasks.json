@@ -1,0 +1,73 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "npm",
+            "script": "compile",
+            "path": "packages/vscode",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "label": "npm: compile - packages/vscode",
+            "detail": "Full build: TypeScript + WASM copy + Webview"
+        },
+        {
+            "type": "npm",
+            "script": "build",
+            "path": "packages/vscode",
+            "group": "build",
+            "label": "npm: build - packages/vscode",
+            "detail": "TypeScript build only"
+        },
+        {
+            "type": "npm",
+            "script": "watch",
+            "path": "packages/vscode",
+            "isBackground": true,
+            "problemMatcher": "$tsc-watch",
+            "group": "build",
+            "label": "npm: watch - packages/vscode",
+            "detail": "Watch and rebuild TypeScript on changes"
+        },
+        {
+            "type": "npm",
+            "script": "build-webview",
+            "path": "packages/vscode",
+            "group": "build",
+            "label": "npm: build-webview - packages/vscode",
+            "detail": "Build webview bundle with esbuild"
+        },
+        {
+            "type": "npm",
+            "script": "copy-wasm",
+            "path": "packages/vscode",
+            "group": "build",
+            "label": "npm: copy-wasm - packages/vscode",
+            "detail": "Copy WASM files to out directory"
+        },
+        {
+            "type": "npm",
+            "script": "build",
+            "group": "build",
+            "label": "npm: build",
+            "detail": "Build all workspaces (TypeScript only)"
+        },
+        {
+            "type": "npm",
+            "script": "build",
+            "path": "packages/core",
+            "group": "build",
+            "label": "npm: build - packages/core",
+            "detail": "Build the core package"
+        },
+        {
+            "type": "npm",
+            "script": "build",
+            "path": "packages/cli",
+            "group": "build",
+            "label": "npm: build - packages/cli",
+            "detail": "Build the CLI package"
+        }
+    ]
+}

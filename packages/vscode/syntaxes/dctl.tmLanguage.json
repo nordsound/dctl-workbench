@@ -1,0 +1,434 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DCTL",
+  "scopeName": "source.dctl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#dctl-macros" },
+    { "include": "#preprocessor" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#dctl-modifiers" },
+    { "include": "#dctl-constants" },
+    { "include": "#dctl-entry-points" },
+    { "include": "#dctl-intrinsics" },
+    { "include": "#dctl-builtins" },
+    { "include": "#dctl-functions" },
+    { "include": "#functions" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.dctl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.dctl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "dctl-macros": {
+      "patterns": [
+        {
+          "comment": "DCTL UI Parameter Macros",
+          "name": "meta.function-call.macro.dctl",
+          "begin": "\\b(DEFINE_UI_PARAMS)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.define.dctl" }
+          },
+          "end": "\\)",
+          "patterns": [
+            { "include": "#dctl-ui-types" },
+            { "include": "#strings" },
+            { "include": "#numbers" },
+            {
+              "name": "variable.parameter.dctl",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+            }
+          ]
+        },
+        {
+          "comment": "DCTL UI Tooltip Macro",
+          "name": "meta.function-call.macro.dctl",
+          "begin": "\\b(DEFINE_UI_TOOLTIP)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.define.dctl" }
+          },
+          "end": "\\)",
+          "patterns": [
+            { "include": "#strings" },
+            {
+              "name": "variable.parameter.dctl",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+            }
+          ]
+        },
+        {
+          "comment": "DCTL LUT Macros",
+          "name": "keyword.control.directive.define.dctl",
+          "match": "\\b(DEFINE_LUT|DEFINE_CUBE_LUT|APPLY_LUT)\\b"
+        },
+        {
+          "comment": "DCTL Alpha Mode Macros",
+          "name": "keyword.control.directive.alpha.dctl",
+          "match": "\\b(DEFINE_DCTL_ALPHA_MODE_STRAIGHT|DEFINE_DCTL_ALPHA_MODE_PREMULTIPLY)\\b"
+        },
+        {
+          "comment": "DCTL Random Generator",
+          "name": "support.function.macro.dctl",
+          "match": "\\b(RAND)\\b"
+        },
+        {
+          "comment": "DCTL ACES Parameter Macros V1",
+          "name": "meta.function-call.macro.dctl",
+          "begin": "\\b(DEFINE_ACES_PARAM)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.aces.dctl" }
+          },
+          "end": "\\)",
+          "patterns": [
+            { "include": "#aces-v1-params" },
+            { "include": "#strings" },
+            { "include": "#numbers" }
+          ]
+        },
+        {
+          "comment": "DCTL ACES Parameter Macros V2",
+          "name": "meta.function-call.macro.dctl",
+          "begin": "\\b(DEFINE_ACES_V2_PARAM)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.aces.dctl" }
+          },
+          "end": "\\)",
+          "patterns": [
+            { "include": "#aces-v2-params" },
+            { "include": "#strings" },
+            { "include": "#numbers" }
+          ]
+        },
+        {
+          "comment": "DCTL Color Space Macros",
+          "name": "keyword.control.directive.colorspace.dctl",
+          "match": "\\b(DEFINE_COLORSPACE_INPUT|DEFINE_COLORSPACE_OUTPUT)\\b"
+        }
+      ]
+    },
+    "dctl-ui-types": {
+      "patterns": [
+        {
+          "name": "support.constant.ui-type.dctl",
+          "match": "\\b(DCTLUI_SLIDER_FLOAT|DCTLUI_SLIDER_INT|DCTLUI_VALUE_BOX|DCTLUI_CHECK_BOX|DCTLUI_COMBO_BOX|DCTLUI_COLOR_PICKER)\\b"
+        }
+      ]
+    },
+    "aces-v1-params": {
+      "patterns": [
+        {
+          "name": "constant.language.aces.dctl",
+          "match": "\\b(IS_PARAMETRIC_ACES_TRANSFORM|ACES_TRANSFORM_ID|ACES_TRANSFORM_UI_NAME|ACES_INPUT_DESCRIPTOR|ACES_OUTPUT_DESCRIPTOR|ACES_USER_INPUT_DESCRIPTOR|ACES_USER_OUTPUT_DESCRIPTOR|ACES_USER_NAME|ACES_USER_NAME_PREFIX|ACES_USER_CATEGORY)\\b"
+        },
+        {
+          "comment": "ACES V1 Parameter Keys",
+          "name": "variable.parameter.aces.dctl",
+          "match": "\\b(Y_MIN|Y_MID|Y_MAX|DISPLAY_PRI|LIMITING_PRI|EOTF|INVERSE_EOTF|SURROUND|STRETCH_BLACK|D60_SIM|LEGAL_RANGE|SKIP_STANDARD_ACES_RRT|OUTPUT_COLORSPACE_TAG)\\b"
+        }
+      ]
+    },
+    "aces-v2-params": {
+      "patterns": [
+        {
+          "comment": "ACES V2 Parameter Keys",
+          "name": "variable.parameter.aces.dctl",
+          "match": "\\b(PEAK_LUMINANCE|LINEAR_SCALE_FACTOR|LIMITING_PRI|ENCODING_PRI|EOTF|IS_SCALE_WHITE)\\b"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.dctl",
+          "match": "^\\s*#\\s*(define|undef|ifdef|ifndef|if|elif|else|endif|include|pragma)\\b.*$",
+          "captures": {
+            "1": { "name": "keyword.control.preprocessor.dctl" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.dctl",
+          "match": "\\b(if|else|for|while|do|switch|case|default|break|continue|return)\\b"
+        },
+        {
+          "name": "storage.modifier.dctl",
+          "match": "\\b(const|static|inline|extern|volatile|restrict|typedef|struct)\\b"
+        },
+        {
+          "name": "storage.type.dctl",
+          "match": "\\b(void|char|short|int|long|float|double|unsigned|signed|bool|true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.vector.dctl",
+          "match": "\\b(float2|float3|float4|int2|int3|int4|half|half2|half3|half4|uint|uint2|uint3|uint4)\\b"
+        },
+        {
+          "name": "support.type.texture.dctl",
+          "match": "\\b(__TEXTURE__|__TEXTURE2D__|__TEXTURE3D__)\\b"
+        },
+        {
+          "comment": "ACES Transform Parameter Struct",
+          "name": "support.type.aces.dctl",
+          "match": "\\b(AcesTransformUserSettingParams)\\b"
+        }
+      ]
+    },
+    "dctl-modifiers": {
+      "patterns": [
+        {
+          "comment": "DCTL Function/Variable Modifiers",
+          "name": "storage.modifier.dctl-specific.dctl",
+          "match": "\\b(__DEVICE__|__GLOBAL__|__CONSTANT__|__CONSTANTREF__|__LOCAL__|__PRIVATE__|__KERNEL__|__RESOLVE_VRT_DCTL__)\\b"
+        }
+      ]
+    },
+    "dctl-constants": {
+      "patterns": [
+        {
+          "comment": "Resolve Version Constants",
+          "name": "constant.language.version.dctl",
+          "match": "\\b(__RESOLVE_VER_MAJOR__|__RESOLVE_VER_MINOR__)\\b"
+        },
+        {
+          "comment": "Device Platform Constants",
+          "name": "constant.language.platform.dctl",
+          "match": "\\b(DEVICE_IS_CUDA|DEVICE_IS_OPENCL|DEVICE_IS_METAL)\\b"
+        },
+        {
+          "comment": "Transition Progress Constant",
+          "name": "constant.language.transition.dctl",
+          "match": "\\b(TRANSITION_PROGRESS)\\b"
+        },
+        {
+          "comment": "Timeline Frame Index Constant",
+          "name": "constant.language.timeline.dctl",
+          "match": "\\b(TIMELINE_FRAME_INDEX)\\b"
+        }
+      ]
+    },
+    "dctl-entry-points": {
+      "patterns": [
+        {
+          "comment": "DCTL Entry Point Functions",
+          "name": "entity.name.function.entry-point.dctl",
+          "match": "\\b(transform|transition)\\s*(?=\\()"
+        }
+      ]
+    },
+    "dctl-intrinsics": {
+      "patterns": [
+        {
+          "comment": "DCTL Math Intrinsics - Trigonometric",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_sinf|_cosf|_tanf|_asinf|_acosf|_atanf|_atan2f|_sinpif|_cospif)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Hyperbolic",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_sinhf|_coshf|_tanhf|_asinhf|_acoshf|_atanhf)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Exponential/Log",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_expf|_exp2f|_exp10f|_logf|_log2f|_log10f|_powf)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Root/Power",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_sqrtf|_rsqrtf|_cbrtf|_hypotf)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Rounding",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_floorf|_ceilf|_roundf|_truncf|_round)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Utility",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_fabsf|_fabs|_fmodf|_fmod|_fminf|_fmaxf|_fmaf|_fdimf|_copysignf)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Clamping",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_clampf|_saturatef|_mix)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Division",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_fdivide|_frecip)\\b"
+        },
+        {
+          "comment": "DCTL Math Intrinsics - Special",
+          "name": "support.function.intrinsic.math.dctl",
+          "match": "\\b(_frexp|_ldexp|isinf|isnan|signbit)\\b"
+        },
+        {
+          "comment": "DCTL Texture Sampling Intrinsics",
+          "name": "support.function.intrinsic.texture.dctl",
+          "match": "\\b(_tex2D|_tex3D|_tex2DVec4|_tex3DVec4|_tex2DVecN)\\b"
+        }
+      ]
+    },
+    "dctl-builtins": {
+      "patterns": [
+        {
+          "comment": "DCTL Built-in Variables - Buffer Transform",
+          "name": "variable.language.dctl",
+          "match": "\\b(p_Width|p_Height|p_X|p_Y|p_R|p_G|p_B|p_A)\\b"
+        },
+        {
+          "comment": "DCTL Built-in Variables - Texture Transform",
+          "name": "variable.language.texture.dctl",
+          "match": "\\b(p_TexR|p_TexG|p_TexB|p_TexA)\\b"
+        },
+        {
+          "comment": "DCTL Built-in Variables - Transition From",
+          "name": "variable.language.transition.dctl",
+          "match": "\\b(p_FromTexR|p_FromTexG|p_FromTexB|p_FromTexA)\\b"
+        },
+        {
+          "comment": "DCTL Built-in Variables - Transition To",
+          "name": "variable.language.transition.dctl",
+          "match": "\\b(p_ToTexR|p_ToTexG|p_ToTexB|p_ToTexA)\\b"
+        },
+        {
+          "comment": "DCTL ACES Transform Functions",
+          "name": "support.function.aces.dctl",
+          "match": "\\b(AcesOutputTransform|AcesInvOutputTransform)\\b"
+        }
+      ]
+    },
+    "dctl-functions": {
+      "patterns": [
+        {
+          "comment": "Vector Constructor Functions",
+          "name": "support.function.constructor.dctl",
+          "match": "\\b(make_float2|make_float3|make_float4|make_int2|make_int3|make_int4|make_half2|make_half3|make_half4|to_float3)\\b"
+        },
+        {
+          "comment": "Standard Math Functions (may produce warnings)",
+          "name": "support.function.math.standard.dctl",
+          "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh)\\b"
+        },
+        {
+          "comment": "Standard Exponential/Log Functions (may produce warnings)",
+          "name": "support.function.math.standard.dctl",
+          "match": "\\b(exp|exp2|exp10|log|log2|log10|pow|sqrt|rsqrt|cbrt)\\b"
+        },
+        {
+          "comment": "Standard Rounding/Utility Functions",
+          "name": "support.function.math.standard.dctl",
+          "match": "\\b(floor|ceil|round|trunc|fabs|fmod|fmin|fmax|fma|copysign)\\b"
+        },
+        {
+          "comment": "Vector Math Functions",
+          "name": "support.function.vector.dctl",
+          "match": "\\b(dot|cross|length|normalize|distance|reflect|refract)\\b"
+        },
+        {
+          "comment": "Common Utility Functions",
+          "name": "support.function.common.dctl",
+          "match": "\\b(clamp|mix|step|smoothstep|sign|abs|min|max|saturate|lerp)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.dctl",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.dctl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.dctl",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.dctl",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.dctl",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.dctl",
+          "match": "\\b[0-9]+\\.[0-9]*([eE][+-]?[0-9]+)?[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.dctl",
+          "match": "\\b\\.[0-9]+([eE][+-]?[0-9]+)?[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.dctl",
+          "match": "\\b[0-9]+[eE][+-]?[0-9]+[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.hex.dctl",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.dctl",
+          "match": "\\b[0-9]+[uUlL]*\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.dctl",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.comparison.dctl",
+          "match": "[<>=!]=?|&&|\\|\\|"
+        },
+        {
+          "name": "keyword.operator.bitwise.dctl",
+          "match": "[&|^~]|<<|>>"
+        },
+        {
+          "name": "keyword.operator.assignment.dctl",
+          "match": "[+\\-*/%&|^]?="
+        }
+      ]
+    }
+  }
+}

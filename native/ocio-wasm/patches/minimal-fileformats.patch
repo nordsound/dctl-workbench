@@ -1,0 +1,68 @@
+diff --git a/src/OpenColorIO/CMakeLists.txt b/src/OpenColorIO/CMakeLists.txt
+--- a/src/OpenColorIO/CMakeLists.txt
++++ b/src/OpenColorIO/CMakeLists.txt
+@@ -28,28 +28,9 @@ set(SOURCES
+     Context.cpp
+     ContextVariableUtils.cpp
+     CPUInfo.cpp
+-    fileformats/cdl/CDLParser.cpp
+-    fileformats/cdl/CDLReaderHelper.cpp
+-    fileformats/cdl/CDLWriter.cpp
+-    fileformats/ctf/CTFReaderHelper.cpp
+-    fileformats/ctf/CTFReaderUtils.cpp
+-    fileformats/ctf/CTFTransform.cpp
+-    fileformats/ctf/IndexMapping.cpp
+-    fileformats/FileFormat3DL.cpp
+-    fileformats/FileFormatCCC.cpp
+-    fileformats/FileFormatCC.cpp
+-    fileformats/FileFormatCDL.cpp
+-    fileformats/FileFormatCSP.cpp
+-    fileformats/FileFormatCTF.cpp
+-    fileformats/FileFormatDiscreet1DL.cpp
+-    fileformats/FileFormatHDL.cpp
+-    fileformats/FileFormatICC.cpp
+-    fileformats/FileFormatIridasCube.cpp
+-    fileformats/FileFormatIridasItx.cpp
+-    fileformats/FileFormatIridasLook.cpp
+-    fileformats/FileFormatPandora.cpp
+-    fileformats/FileFormatResolveCube.cpp
+-    fileformats/FileFormatSpi1D.cpp
+-    fileformats/FileFormatSpi3D.cpp
+-    fileformats/FileFormatSpiMtx.cpp
+-    fileformats/FileFormatTruelight.cpp
+     fileformats/FileFormatUtils.cpp
+-    fileformats/FileFormatVF.cpp
+     fileformats/FormatMetadata.cpp
+-    fileformats/xmlutils/XMLReaderHelper.cpp
+-    fileformats/xmlutils/XMLReaderUtils.cpp
+-    fileformats/xmlutils/XMLWriterUtils.cpp
+     CPUProcessor.cpp
+diff --git a/src/OpenColorIO/transforms/FileTransform.cpp b/src/OpenColorIO/transforms/FileTransform.cpp
+--- a/src/OpenColorIO/transforms/FileTransform.cpp
++++ b/src/OpenColorIO/transforms/FileTransform.cpp
+@@ -331,25 +331,6 @@ const FormatRegistry & FormatRegistry::GetInstance()
+
+ FormatRegistry::FormatRegistry()
+ {
+-    registerFileFormat(CreateFileFormat3DL());
+-    registerFileFormat(CreateFileFormatCC());
+-    registerFileFormat(CreateFileFormatCCC());
+-    registerFileFormat(CreateFileFormatCDL());
+-    registerFileFormat(CreateFileFormatCLF());
+-    registerFileFormat(CreateFileFormatCSP());
+-    registerFileFormat(CreateFileFormatDiscreet1DL());
+-    registerFileFormat(CreateFileFormatHDL());
+-    registerFileFormat(CreateFileFormatICC());
+-    registerFileFormat(CreateFileFormatIridasCube());
+-    registerFileFormat(CreateFileFormatIridasItx());
+-    registerFileFormat(CreateFileFormatIridasLook());
+-    registerFileFormat(CreateFileFormatPandora());
+-    registerFileFormat(CreateFileFormatResolveCube());
+-    registerFileFormat(CreateFileFormatSpi1D());
+-    registerFileFormat(CreateFileFormatSpi3D());
+-    registerFileFormat(CreateFileFormatSpiMtx());
+-    registerFileFormat(CreateFileFormatTruelight());
+-    registerFileFormat(CreateFileFormatVF());
+ }
+
+ FormatRegistry::~FormatRegistry()

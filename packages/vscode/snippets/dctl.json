@@ -1,0 +1,1050 @@
+{
+  "__DEVICE__ Transform (float3)": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)",
+      "{",
+      "\tfloat3 rgb = make_float3(p_R, p_G, p_B);",
+      "\t$0",
+      "\treturn rgb;",
+      "}"
+    ],
+    "description": "transform float3 - RGB color transform"
+  },
+  "__DEVICE__ Transform (float4)": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ float4 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B, float p_A)",
+      "{",
+      "\tfloat4 rgba = make_float4(p_R, p_G, p_B, p_A);",
+      "\t$0",
+      "\treturn rgba;",
+      "}"
+    ],
+    "description": "transform float4 - RGBA color transform with alpha (19.1+)"
+  },
+  "__DEVICE__ Transform Texture (float3)": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)",
+      "{",
+      "\tfloat r = _tex2D(p_TexR, p_X, p_Y);",
+      "\tfloat g = _tex2D(p_TexG, p_X, p_Y);",
+      "\tfloat b = _tex2D(p_TexB, p_X, p_Y);",
+      "\tfloat3 rgb = make_float3(r, g, b);",
+      "\t$0",
+      "\treturn rgb;",
+      "}"
+    ],
+    "description": "transform float3 - RGB with texture access"
+  },
+  "__DEVICE__ Transform Texture (float4)": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ float4 transform(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB, __TEXTURE__ p_TexA)",
+      "{",
+      "\tfloat r = _tex2D(p_TexR, p_X, p_Y);",
+      "\tfloat g = _tex2D(p_TexG, p_X, p_Y);",
+      "\tfloat b = _tex2D(p_TexB, p_X, p_Y);",
+      "\tfloat a = _tex2D(p_TexA, p_X, p_Y);",
+      "\tfloat4 rgba = make_float4(r, g, b, a);",
+      "\t$0",
+      "\treturn rgba;",
+      "}"
+    ],
+    "description": "transform float4 - RGBA with texture access (19.1+)"
+  },
+  "__DEVICE__ Transition": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ float4 transition(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_FromTexR, __TEXTURE__ p_FromTexG, __TEXTURE__ p_FromTexB, __TEXTURE__ p_FromTexA,",
+      "\t__TEXTURE__ p_ToTexR, __TEXTURE__ p_ToTexG, __TEXTURE__ p_ToTexB, __TEXTURE__ p_ToTexA)",
+      "{",
+      "\tfloat4 from = make_float4(_tex2D(p_FromTexR, p_X, p_Y), _tex2D(p_FromTexG, p_X, p_Y), _tex2D(p_FromTexB, p_X, p_Y), _tex2D(p_FromTexA, p_X, p_Y));",
+      "\tfloat4 to = make_float4(_tex2D(p_ToTexR, p_X, p_Y), _tex2D(p_ToTexG, p_X, p_Y), _tex2D(p_ToTexB, p_X, p_Y), _tex2D(p_ToTexA, p_X, p_Y));",
+      "\tfloat t = TRANSITION_PROGRESS;",
+      "\t$0",
+      "\treturn make_float4(",
+      "\t\t_mix(from.x, to.x, t),",
+      "\t\t_mix(from.y, to.y, t),",
+      "\t\t_mix(from.z, to.z, t),",
+      "\t\t_mix(from.w, to.w, t)",
+      "\t);",
+      "}"
+    ],
+    "description": "transition - Transition effect entry point (official signature)"
+  },
+  "__DEVICE__ Helper Function": {
+    "prefix": "__DEVICE__",
+    "body": [
+      "__DEVICE__ ${1:float} ${2:functionName}(${3:float x})",
+      "{",
+      "\t$0",
+      "\treturn ${4:x};",
+      "}"
+    ],
+    "description": "Helper function - Custom device function"
+  },
+  "Transform Entry Point": {
+    "prefix": "transform",
+    "body": [
+      "__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)",
+      "{",
+      "\tfloat3 rgb = make_float3(p_R, p_G, p_B);",
+      "\t$0",
+      "\treturn rgb;",
+      "}"
+    ],
+    "description": "DCTL transform entry point function"
+  },
+  "Transition Entry Point": {
+    "prefix": "transition",
+    "body": [
+      "__DEVICE__ float4 transition(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_FromTexR, __TEXTURE__ p_FromTexG, __TEXTURE__ p_FromTexB, __TEXTURE__ p_FromTexA,",
+      "\t__TEXTURE__ p_ToTexR, __TEXTURE__ p_ToTexG, __TEXTURE__ p_ToTexB, __TEXTURE__ p_ToTexA)",
+      "{",
+      "\tfloat4 from = make_float4(_tex2D(p_FromTexR, p_X, p_Y), _tex2D(p_FromTexG, p_X, p_Y), _tex2D(p_FromTexB, p_X, p_Y), _tex2D(p_FromTexA, p_X, p_Y));",
+      "\tfloat4 to = make_float4(_tex2D(p_ToTexR, p_X, p_Y), _tex2D(p_ToTexG, p_X, p_Y), _tex2D(p_ToTexB, p_X, p_Y), _tex2D(p_ToTexA, p_X, p_Y));",
+      "\tfloat t = TRANSITION_PROGRESS;",
+      "\t$0",
+      "\treturn make_float4(",
+      "\t\t_mix(from.x, to.x, t),",
+      "\t\t_mix(from.y, to.y, t),",
+      "\t\t_mix(from.z, to.z, t),",
+      "\t\t_mix(from.w, to.w, t)",
+      "\t);",
+      "}"
+    ],
+    "description": "DCTL transition entry point function (official signature)"
+  },
+  "UI Slider Float": {
+    "prefix": "uislider",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_SLIDER_FLOAT, ${3:0.0}, ${4:0.0}, ${5:1.0}, ${6:0.01})"
+    ],
+    "description": "DCTL UI float slider parameter"
+  },
+  "UI Slider Int": {
+    "prefix": "uisliderint",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_SLIDER_INT, ${3:0}, ${4:0}, ${5:10}, ${6:1})"
+    ],
+    "description": "DCTL UI integer slider parameter"
+  },
+  "UI Value Box": {
+    "prefix": "uivaluebox",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_VALUE_BOX, ${3:1.0})"
+    ],
+    "description": "DCTL UI value box parameter"
+  },
+  "UI Checkbox": {
+    "prefix": "uicheckbox",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_CHECK_BOX, ${3:0})"
+    ],
+    "description": "DCTL UI checkbox parameter"
+  },
+  "UI Combo Box": {
+    "prefix": "uicombo",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_COMBO_BOX, ${3:0}, {${4:RED}, ${5:GREEN}, ${6:BLUE}}, {${7:Channel Red}, ${8:Channel Green}, ${9:Channel Blue}})"
+    ],
+    "description": "DCTL UI combo box parameter with enum and label lists"
+  },
+  "UI Color Picker": {
+    "prefix": "uicolorpicker",
+    "body": [
+      "DEFINE_UI_PARAMS(${1:name}, ${2:Label}, DCTLUI_COLOR_PICKER, ${3:1.0f}, ${4:1.0f}, ${5:1.0f})"
+    ],
+    "description": "DCTL UI color picker parameter (Resolve 19.1+)"
+  },
+  "UI Tooltip": {
+    "prefix": "uitooltip",
+    "body": [
+      "DEFINE_UI_TOOLTIP(${1:name}, \"${2:Tooltip text}\")"
+    ],
+    "description": "DCTL UI tooltip for a parameter"
+  },
+  "Make Float3": {
+    "prefix": "float3",
+    "body": [
+      "make_float3(${1:r}, ${2:g}, ${3:b})"
+    ],
+    "description": "Create float3 vector"
+  },
+  "Make Float4": {
+    "prefix": "float4",
+    "body": [
+      "make_float4(${1:r}, ${2:g}, ${3:b}, ${4:a})"
+    ],
+    "description": "Create float4 vector"
+  },
+  "Float3 Variable": {
+    "prefix": "vfloat3",
+    "body": [
+      "float3 ${1:name} = make_float3(${2:0.0f}, ${3:0.0f}, ${4:0.0f});"
+    ],
+    "description": "Declare float3 variable"
+  },
+  "Float4 Variable": {
+    "prefix": "vfloat4",
+    "body": [
+      "float4 ${1:name} = make_float4(${2:0.0f}, ${3:0.0f}, ${4:0.0f}, ${5:1.0f});"
+    ],
+    "description": "Declare float4 variable"
+  },
+  "Clamp": {
+    "prefix": "clamp",
+    "body": [
+      "_clampf(${1:value}, ${2:0.0f}, ${3:1.0f})"
+    ],
+    "description": "Clamp float value"
+  },
+  "Mix/Lerp": {
+    "prefix": "mix",
+    "body": [
+      "_mix(${1:a}, ${2:b}, ${3:t})"
+    ],
+    "description": "Linear interpolation"
+  },
+  "Dot Product": {
+    "prefix": "dot",
+    "body": [
+      "${1:a}.x * ${2:b}.x + ${1:a}.y * ${2:b}.y + ${1:a}.z * ${2:b}.z"
+    ],
+    "description": "Dot product of two float3"
+  },
+  "Matrix 3x3 Multiply": {
+    "prefix": "mat3mul",
+    "body": [
+      "__DEVICE__ float3 mat3_mul(float3 v, float m00, float m01, float m02,",
+      "\t                                    float m10, float m11, float m12,",
+      "\t                                    float m20, float m21, float m22)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tv.x * m00 + v.y * m01 + v.z * m02,",
+      "\t\tv.x * m10 + v.y * m11 + v.z * m12,",
+      "\t\tv.x * m20 + v.y * m21 + v.z * m22",
+      "\t);",
+      "}"
+    ],
+    "description": "3x3 matrix multiplication function"
+  },
+  "Power Function": {
+    "prefix": "pow",
+    "body": [
+      "_powf(${1:base}, ${2:exponent})"
+    ],
+    "description": "Power function"
+  },
+  "Log Function": {
+    "prefix": "log",
+    "body": [
+      "_logf(${1:value})"
+    ],
+    "description": "Natural logarithm"
+  },
+  "Log10 Function": {
+    "prefix": "log10",
+    "body": [
+      "_log10f(${1:value})"
+    ],
+    "description": "Base 10 logarithm"
+  },
+  "Exp Function": {
+    "prefix": "exp",
+    "body": [
+      "_expf(${1:value})"
+    ],
+    "description": "Exponential function"
+  },
+  "Square Root": {
+    "prefix": "sqrt",
+    "body": [
+      "_sqrtf(${1:value})"
+    ],
+    "description": "Square root"
+  },
+  "Absolute Value": {
+    "prefix": "abs",
+    "body": [
+      "_fabs(${1:value})"
+    ],
+    "description": "Absolute value"
+  },
+  "Max": {
+    "prefix": "max",
+    "body": [
+      "_fmaxf(${1:a}, ${2:b})"
+    ],
+    "description": "Maximum of two values"
+  },
+  "Min": {
+    "prefix": "min",
+    "body": [
+      "_fminf(${1:a}, ${2:b})"
+    ],
+    "description": "Minimum of two values"
+  },
+  "Texture Read": {
+    "prefix": "tex2d",
+    "body": [
+      "_tex2D(${1:texture}, ${2:x}, ${3:y})"
+    ],
+    "description": "Read from texture"
+  },
+  "RGB to Luminance": {
+    "prefix": "luma",
+    "body": [
+      "float ${1:luma} = 0.2126f * ${2:rgb}.x + 0.7152f * ${2:rgb}.y + 0.0722f * ${2:rgb}.z;"
+    ],
+    "description": "Calculate luminance (Rec.709)"
+  },
+  "Saturation Adjustment": {
+    "prefix": "saturation",
+    "body": [
+      "// Saturation adjustment",
+      "float luma = 0.2126f * ${1:rgb}.x + 0.7152f * ${1:rgb}.y + 0.0722f * ${1:rgb}.z;",
+      "${1:rgb}.x = _mix(luma, ${1:rgb}.x, ${2:saturation});",
+      "${1:rgb}.y = _mix(luma, ${1:rgb}.y, ${2:saturation});",
+      "${1:rgb}.z = _mix(luma, ${1:rgb}.z, ${2:saturation});"
+    ],
+    "description": "Saturation adjustment code"
+  },
+  "Lift Gamma Gain": {
+    "prefix": "lgg",
+    "body": [
+      "// Lift-Gamma-Gain",
+      "${1:rgb}.x = _powf(_fmaxf(${1:rgb}.x * ${2:gain} + ${3:lift}, 0.0f), 1.0f / ${4:gamma});",
+      "${1:rgb}.y = _powf(_fmaxf(${1:rgb}.y * ${2:gain} + ${3:lift}, 0.0f), 1.0f / ${4:gamma});",
+      "${1:rgb}.z = _powf(_fmaxf(${1:rgb}.z * ${2:gain} + ${3:lift}, 0.0f), 1.0f / ${4:gamma});"
+    ],
+    "description": "Lift-Gamma-Gain color correction"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "for (int ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++)",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "Device Function": {
+    "prefix": "func",
+    "body": [
+      "__DEVICE__ ${1:float} ${2:functionName}(${3:float x})",
+      "{",
+      "\t$0",
+      "\treturn ${4:x};",
+      "}"
+    ],
+    "description": "Device function declaration"
+  },
+  "DCTL File Template": {
+    "prefix": "dctltemplate",
+    "body": [
+      "// ${1:Effect Name}",
+      "// ${2:Description}",
+      "",
+      "DEFINE_UI_PARAMS(strength, Strength, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)",
+      "",
+      "__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)",
+      "{",
+      "\tfloat3 rgb = make_float3(p_R, p_G, p_B);",
+      "\t",
+      "\t// Apply effect",
+      "\t$0",
+      "\t",
+      "\treturn rgb;",
+      "}"
+    ],
+    "description": "Complete DCTL file template"
+  },
+  "Define LUT": {
+    "prefix": "definelut",
+    "body": [
+      "DEFINE_LUT(${1:lutName}, \"${2:path/to/lut.cube}\");"
+    ],
+    "description": "Define external LUT file reference"
+  },
+  "Apply LUT": {
+    "prefix": "applylut",
+    "body": [
+      "APPLY_LUT(${1:r}, ${2:g}, ${3:b}, ${4:lutName});"
+    ],
+    "description": "Apply a defined LUT to RGB values"
+  },
+  "RGB to HSV": {
+    "prefix": "rgb2hsv",
+    "body": [
+      "__DEVICE__ float3 rgb2hsv(float3 rgb)",
+      "{",
+      "\tfloat r = rgb.x, g = rgb.y, b = rgb.z;",
+      "\tfloat maxc = _fmaxf(_fmaxf(r, g), b);",
+      "\tfloat minc = _fminf(_fminf(r, g), b);",
+      "\tfloat delta = maxc - minc;",
+      "\t",
+      "\tfloat h = 0.0f;",
+      "\tif (delta > 0.0f) {",
+      "\t\tif (maxc == r) {",
+      "\t\t\th = (g - b) / delta;",
+      "\t\t} else if (maxc == g) {",
+      "\t\t\th = 2.0f + (b - r) / delta;",
+      "\t\t} else {",
+      "\t\t\th = 4.0f + (r - g) / delta;",
+      "\t\t}",
+      "\t\th = h / 6.0f;",
+      "\t\tif (h < 0.0f) h += 1.0f;",
+      "\t}",
+      "\t",
+      "\tfloat s = (maxc > 0.0f) ? delta / maxc : 0.0f;",
+      "\tfloat v = maxc;",
+      "\t",
+      "\treturn make_float3(h, s, v);",
+      "}"
+    ],
+    "description": "Convert RGB to HSV color space"
+  },
+  "HSV to RGB": {
+    "prefix": "hsv2rgb",
+    "body": [
+      "__DEVICE__ float3 hsv2rgb(float3 hsv)",
+      "{",
+      "\tfloat h = hsv.x, s = hsv.y, v = hsv.z;",
+      "\t",
+      "\tif (s <= 0.0f) {",
+      "\t\treturn make_float3(v, v, v);",
+      "\t}",
+      "\t",
+      "\th = h * 6.0f;",
+      "\tif (h >= 6.0f) h = 0.0f;",
+      "\t",
+      "\tint i = (int)h;",
+      "\tfloat f = h - (float)i;",
+      "\tfloat p = v * (1.0f - s);",
+      "\tfloat q = v * (1.0f - s * f);",
+      "\tfloat t = v * (1.0f - s * (1.0f - f));",
+      "\t",
+      "\tswitch (i) {",
+      "\t\tcase 0: return make_float3(v, t, p);",
+      "\t\tcase 1: return make_float3(q, v, p);",
+      "\t\tcase 2: return make_float3(p, v, t);",
+      "\t\tcase 3: return make_float3(p, q, v);",
+      "\t\tcase 4: return make_float3(t, p, v);",
+      "\t\tdefault: return make_float3(v, p, q);",
+      "\t}",
+      "}"
+    ],
+    "description": "Convert HSV to RGB color space"
+  },
+  "sRGB to Linear": {
+    "prefix": "srgb2linear",
+    "body": [
+      "__DEVICE__ float srgb2linear(float x)",
+      "{",
+      "\treturn (x <= 0.04045f) ? x / 12.92f : _powf((x + 0.055f) / 1.055f, 2.4f);",
+      "}",
+      "",
+      "__DEVICE__ float3 srgb2linear3(float3 rgb)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tsrgb2linear(rgb.x),",
+      "\t\tsrgb2linear(rgb.y),",
+      "\t\tsrgb2linear(rgb.z)",
+      "\t);",
+      "}"
+    ],
+    "description": "Convert sRGB to Linear color space"
+  },
+  "Linear to sRGB": {
+    "prefix": "linear2srgb",
+    "body": [
+      "__DEVICE__ float linear2srgb(float x)",
+      "{",
+      "\treturn (x <= 0.0031308f) ? x * 12.92f : 1.055f * _powf(x, 1.0f / 2.4f) - 0.055f;",
+      "}",
+      "",
+      "__DEVICE__ float3 linear2srgb3(float3 rgb)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tlinear2srgb(rgb.x),",
+      "\t\tlinear2srgb(rgb.y),",
+      "\t\tlinear2srgb(rgb.z)",
+      "\t);",
+      "}"
+    ],
+    "description": "Convert Linear to sRGB color space"
+  },
+  "Contrast": {
+    "prefix": "contrast",
+    "body": [
+      "// Contrast adjustment around pivot point",
+      "float pivot = ${1:0.18f};",
+      "${2:rgb}.x = (${2:rgb}.x - pivot) * ${3:contrast} + pivot;",
+      "${2:rgb}.y = (${2:rgb}.y - pivot) * ${3:contrast} + pivot;",
+      "${2:rgb}.z = (${2:rgb}.z - pivot) * ${3:contrast} + pivot;"
+    ],
+    "description": "Contrast adjustment around pivot point"
+  },
+  "Exposure": {
+    "prefix": "exposure",
+    "body": [
+      "// Exposure adjustment in stops",
+      "float exposureMult = _exp2f(${1:stops});",
+      "${2:rgb}.x *= exposureMult;",
+      "${2:rgb}.y *= exposureMult;",
+      "${2:rgb}.z *= exposureMult;"
+    ],
+    "description": "Exposure adjustment in stops (EV)"
+  },
+  "Saturate": {
+    "prefix": "saturate",
+    "body": [
+      "_saturatef(${1:value})"
+    ],
+    "description": "Clamp value to [0.0, 1.0] range"
+  },
+  "Transform with Texture": {
+    "prefix": "transformtex",
+    "body": [
+      "__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)",
+      "{",
+      "\tfloat r = _tex2D(p_TexR, p_X, p_Y);",
+      "\tfloat g = _tex2D(p_TexG, p_X, p_Y);",
+      "\tfloat b = _tex2D(p_TexB, p_X, p_Y);",
+      "\tfloat3 rgb = make_float3(r, g, b);",
+      "\t",
+      "\t// Access neighboring pixels example:",
+      "\t// float neighbor = _tex2D(p_TexR, p_X + 1, p_Y);",
+      "\t$0",
+      "\t",
+      "\treturn rgb;",
+      "}"
+    ],
+    "description": "Transform entry point with texture access for neighboring pixels"
+  },
+  "Matrix 3x3 Struct": {
+    "prefix": "matrix3x3",
+    "body": [
+      "typedef struct {",
+      "\tfloat c00, c01, c02;",
+      "\tfloat c10, c11, c12;",
+      "\tfloat c20, c21, c22;",
+      "} Matrix3x3;",
+      "",
+      "__DEVICE__ float3 mat3_apply(Matrix3x3 m, float3 v)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tm.c00 * v.x + m.c01 * v.y + m.c02 * v.z,",
+      "\t\tm.c10 * v.x + m.c11 * v.y + m.c12 * v.z,",
+      "\t\tm.c20 * v.x + m.c21 * v.y + m.c22 * v.z",
+      "\t);",
+      "}"
+    ],
+    "description": "3x3 matrix struct with apply function"
+  },
+  "Transition Progress": {
+    "prefix": "progress",
+    "body": [
+      "float t = TRANSITION_PROGRESS; // 0.0 to 1.0"
+    ],
+    "description": "Get transition progress value (0.0 to 1.0)"
+  },
+  "Sine": {
+    "prefix": "sin",
+    "body": [
+      "_sinf(${1:radians})"
+    ],
+    "description": "Sine function (radians)"
+  },
+  "Cosine": {
+    "prefix": "cos",
+    "body": [
+      "_cosf(${1:radians})"
+    ],
+    "description": "Cosine function (radians)"
+  },
+  "Tangent": {
+    "prefix": "tan",
+    "body": [
+      "_tanf(${1:radians})"
+    ],
+    "description": "Tangent function (radians)"
+  },
+  "Arc Sine": {
+    "prefix": "asin",
+    "body": [
+      "_asinf(${1:value})"
+    ],
+    "description": "Arc sine function"
+  },
+  "Arc Cosine": {
+    "prefix": "acos",
+    "body": [
+      "_acosf(${1:value})"
+    ],
+    "description": "Arc cosine function"
+  },
+  "Arc Tangent 2": {
+    "prefix": "atan2",
+    "body": [
+      "_atan2f(${1:y}, ${2:x})"
+    ],
+    "description": "Arc tangent of y/x (handles quadrants)"
+  },
+  "Ceiling": {
+    "prefix": "ceil",
+    "body": [
+      "_ceilf(${1:value})"
+    ],
+    "description": "Smallest integer >= value"
+  },
+  "Floor": {
+    "prefix": "floor",
+    "body": [
+      "_floorf(${1:value})"
+    ],
+    "description": "Largest integer <= value"
+  },
+  "Round": {
+    "prefix": "round",
+    "body": [
+      "_round(${1:value})"
+    ],
+    "description": "Round to nearest integer"
+  },
+  "Exp2": {
+    "prefix": "exp2",
+    "body": [
+      "_exp2f(${1:value})"
+    ],
+    "description": "2^x exponential"
+  },
+  "Log2": {
+    "prefix": "log2",
+    "body": [
+      "_log2f(${1:value})"
+    ],
+    "description": "Base-2 logarithm"
+  },
+  "RGB to HSL": {
+    "prefix": "rgb2hsl",
+    "body": [
+      "__DEVICE__ float3 rgb2hsl(float3 rgb)",
+      "{",
+      "\tfloat r = rgb.x, g = rgb.y, b = rgb.z;",
+      "\tfloat maxc = _fmaxf(_fmaxf(r, g), b);",
+      "\tfloat minc = _fminf(_fminf(r, g), b);",
+      "\tfloat l = (maxc + minc) * 0.5f;",
+      "\t",
+      "\tif (maxc == minc) {",
+      "\t\treturn make_float3(0.0f, 0.0f, l);",
+      "\t}",
+      "\t",
+      "\tfloat delta = maxc - minc;",
+      "\tfloat s = (l > 0.5f) ? delta / (2.0f - maxc - minc) : delta / (maxc + minc);",
+      "\t",
+      "\tfloat h = 0.0f;",
+      "\tif (maxc == r) {",
+      "\t\th = (g - b) / delta + (g < b ? 6.0f : 0.0f);",
+      "\t} else if (maxc == g) {",
+      "\t\th = (b - r) / delta + 2.0f;",
+      "\t} else {",
+      "\t\th = (r - g) / delta + 4.0f;",
+      "\t}",
+      "\th /= 6.0f;",
+      "\t",
+      "\treturn make_float3(h, s, l);",
+      "}"
+    ],
+    "description": "Convert RGB to HSL color space"
+  },
+  "HSL to RGB": {
+    "prefix": "hsl2rgb",
+    "body": [
+      "__DEVICE__ float hue2rgb(float p, float q, float t)",
+      "{",
+      "\tif (t < 0.0f) t += 1.0f;",
+      "\tif (t > 1.0f) t -= 1.0f;",
+      "\tif (t < 1.0f / 6.0f) return p + (q - p) * 6.0f * t;",
+      "\tif (t < 0.5f) return q;",
+      "\tif (t < 2.0f / 3.0f) return p + (q - p) * (2.0f / 3.0f - t) * 6.0f;",
+      "\treturn p;",
+      "}",
+      "",
+      "__DEVICE__ float3 hsl2rgb(float3 hsl)",
+      "{",
+      "\tfloat h = hsl.x, s = hsl.y, l = hsl.z;",
+      "\t",
+      "\tif (s <= 0.0f) {",
+      "\t\treturn make_float3(l, l, l);",
+      "\t}",
+      "\t",
+      "\tfloat q = (l < 0.5f) ? l * (1.0f + s) : l + s - l * s;",
+      "\tfloat p = 2.0f * l - q;",
+      "\t",
+      "\treturn make_float3(",
+      "\t\thue2rgb(p, q, h + 1.0f / 3.0f),",
+      "\t\thue2rgb(p, q, h),",
+      "\t\thue2rgb(p, q, h - 1.0f / 3.0f)",
+      "\t);",
+      "}"
+    ],
+    "description": "Convert HSL to RGB color space"
+  },
+  "Color Temperature": {
+    "prefix": "temperature",
+    "body": [
+      "// Color temperature adjustment (warm/cool)",
+      "// temperature: negative = cooler (blue), positive = warmer (orange)",
+      "float temp = ${1:temperature};",
+      "${2:rgb}.x += temp * 0.1f;",
+      "${2:rgb}.z -= temp * 0.1f;"
+    ],
+    "description": "Simple color temperature adjustment"
+  },
+  "Crossfade": {
+    "prefix": "crossfade",
+    "body": [
+      "// Crossfade between two colors",
+      "float3 result = make_float3(",
+      "\t_mix(${1:rgb1}.x, ${2:rgb2}.x, ${3:t}),",
+      "\t_mix(${1:rgb1}.y, ${2:rgb2}.y, ${3:t}),",
+      "\t_mix(${1:rgb1}.z, ${2:rgb2}.z, ${3:t})",
+      ");"
+    ],
+    "description": "Crossfade/blend between two RGB colors"
+  },
+  "Struct Definition": {
+    "prefix": "struct",
+    "body": [
+      "typedef struct {",
+      "\t${1:float value1};",
+      "\t${2:float value2};",
+      "} ${3:StructName};"
+    ],
+    "description": "Define a custom struct"
+  },
+  "Device Ifdef": {
+    "prefix": "ifdef",
+    "body": [
+      "#ifdef DEVICE_IS_${1|CUDA,OPENCL,METAL|}",
+      "\t$0",
+      "#endif"
+    ],
+    "description": "Conditional compilation for GPU device type"
+  },
+  "Version Check": {
+    "prefix": "ifver",
+    "body": [
+      "#if ((__RESOLVE_VER_MAJOR__ >= ${1:17}) && (__RESOLVE_VER_MINOR__ >= ${2:0}))",
+      "\t$0",
+      "#else",
+      "\t// Fallback for older versions",
+      "#endif"
+    ],
+    "description": "Conditional compilation for Resolve version"
+  },
+  "LogC to Linear": {
+    "prefix": "logc2linear",
+    "body": [
+      "// ARRI LogC3 to Linear (EI 800)",
+      "__DEVICE__ float logc2linear(float x)",
+      "{",
+      "\tconst float cut = 0.010591f;",
+      "\tconst float a = 5.555556f;",
+      "\tconst float b = 0.052272f;",
+      "\tconst float c = 0.247190f;",
+      "\tconst float d = 0.385537f;",
+      "\tconst float e = 5.367655f;",
+      "\tconst float f = 0.092809f;",
+      "\t",
+      "\treturn (x > e * cut + f) ? (_powf(10.0f, (x - d) / c) - b) / a : (x - f) / e;",
+      "}",
+      "",
+      "__DEVICE__ float3 logc2linear3(float3 rgb)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tlogc2linear(rgb.x),",
+      "\t\tlogc2linear(rgb.y),",
+      "\t\tlogc2linear(rgb.z)",
+      "\t);",
+      "}"
+    ],
+    "description": "Convert ARRI LogC3 to Linear"
+  },
+  "Linear to LogC": {
+    "prefix": "linear2logc",
+    "body": [
+      "// Linear to ARRI LogC3 (EI 800)",
+      "__DEVICE__ float linear2logc(float x)",
+      "{",
+      "\tconst float cut = 0.010591f;",
+      "\tconst float a = 5.555556f;",
+      "\tconst float b = 0.052272f;",
+      "\tconst float c = 0.247190f;",
+      "\tconst float d = 0.385537f;",
+      "\tconst float e = 5.367655f;",
+      "\tconst float f = 0.092809f;",
+      "\t",
+      "\treturn (x > cut) ? c * _log10f(a * x + b) + d : e * x + f;",
+      "}",
+      "",
+      "__DEVICE__ float3 linear2logc3(float3 rgb)",
+      "{",
+      "\treturn make_float3(",
+      "\t\tlinear2logc(rgb.x),",
+      "\t\tlinear2logc(rgb.y),",
+      "\t\tlinear2logc(rgb.z)",
+      "\t);",
+      "}"
+    ],
+    "description": "Convert Linear to ARRI LogC3"
+  },
+  "Random": {
+    "prefix": "rand",
+    "body": [
+      "float r = RAND(${1:seed}); // 0.0 to 1.0"
+    ],
+    "description": "Generate random float (Resolve 19.1+)"
+  },
+  "Timeline Frame Index": {
+    "prefix": "frameindex",
+    "body": [
+      "int frame = TIMELINE_FRAME_INDEX;"
+    ],
+    "description": "Get current timeline frame index (Resolve 19.1+)"
+  },
+  "Constant Memory": {
+    "prefix": "constant",
+    "body": [
+      "__CONSTANT__ float ${1:CONST_NAME}[] = {${2:1.0f, 2.0f, 3.0f}};"
+    ],
+    "description": "Define constant memory array"
+  },
+  "Constant Ref Parameter": {
+    "prefix": "constantref",
+    "body": [
+      "__DEVICE__ ${1:float} ${2:functionName}(__CONSTANTREF__ float* ${3:p_Params})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with constant memory reference parameter"
+  },
+  "Transform with Alpha": {
+    "prefix": "transformalpha",
+    "body": [
+      "__DEVICE__ float4 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B, float p_A)",
+      "{",
+      "\tfloat4 rgba = make_float4(p_R, p_G, p_B, p_A);",
+      "\t$0",
+      "\treturn rgba;",
+      "}"
+    ],
+    "description": "Transform entry point with alpha channel (Resolve 19.1+)"
+  },
+  "Transform with Texture and Alpha": {
+    "prefix": "transformtexalpha",
+    "body": [
+      "__DEVICE__ float4 transform(int p_Width, int p_Height, int p_X, int p_Y,",
+      "\t__TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB, __TEXTURE__ p_TexA)",
+      "{",
+      "\tfloat r = _tex2D(p_TexR, p_X, p_Y);",
+      "\tfloat g = _tex2D(p_TexG, p_X, p_Y);",
+      "\tfloat b = _tex2D(p_TexB, p_X, p_Y);",
+      "\tfloat a = _tex2D(p_TexA, p_X, p_Y);",
+      "\tfloat4 rgba = make_float4(r, g, b, a);",
+      "\t$0",
+      "\treturn rgba;",
+      "}"
+    ],
+    "description": "Transform entry point with texture and alpha (Resolve 19.1+)"
+  },
+  "Alpha Mode Straight": {
+    "prefix": "alphastraight",
+    "body": [
+      "DEFINE_DCTL_ALPHA_MODE_STRAIGHT"
+    ],
+    "description": "Define straight (unassociated) alpha mode (Resolve 19.1+)"
+  },
+  "Alpha Mode Premultiply": {
+    "prefix": "alphapremultiply",
+    "body": [
+      "DEFINE_DCTL_ALPHA_MODE_PREMULTIPLY"
+    ],
+    "description": "Define premultiplied (associated) alpha mode (Resolve 19.1+)"
+  },
+  "Hyperbolic Cosine": {
+    "prefix": "cosh",
+    "body": [
+      "_coshf(${1:x})"
+    ],
+    "description": "Hyperbolic cosine"
+  },
+  "Hyperbolic Sine": {
+    "prefix": "sinh",
+    "body": [
+      "_sinhf(${1:x})"
+    ],
+    "description": "Hyperbolic sine"
+  },
+  "Hyperbolic Tangent": {
+    "prefix": "tanh",
+    "body": [
+      "_tanhf(${1:x})"
+    ],
+    "description": "Hyperbolic tangent"
+  },
+  "Inverse Hyperbolic Cosine": {
+    "prefix": "acosh",
+    "body": [
+      "_acoshf(${1:x})"
+    ],
+    "description": "Inverse hyperbolic cosine"
+  },
+  "Inverse Hyperbolic Sine": {
+    "prefix": "asinh",
+    "body": [
+      "_asinhf(${1:x})"
+    ],
+    "description": "Inverse hyperbolic sine"
+  },
+  "Inverse Hyperbolic Tangent": {
+    "prefix": "atanh",
+    "body": [
+      "_atanhf(${1:x})"
+    ],
+    "description": "Inverse hyperbolic tangent"
+  },
+  "Fused Multiply-Add": {
+    "prefix": "fma",
+    "body": [
+      "_fmaf(${1:x}, ${2:y}, ${3:z})"
+    ],
+    "description": "Fused multiply-add: (x * y) + z"
+  },
+  "Positive Difference": {
+    "prefix": "fdim",
+    "body": [
+      "_fdimf(${1:x}, ${2:y})"
+    ],
+    "description": "Positive difference: x - y if x > y, else 0"
+  },
+  "Hypotenuse": {
+    "prefix": "hypot",
+    "body": [
+      "_hypotf(${1:x}, ${2:y})"
+    ],
+    "description": "Hypotenuse: sqrt(x*x + y*y)"
+  },
+  "Copy Sign": {
+    "prefix": "copysign",
+    "body": [
+      "_copysignf(${1:magnitude}, ${2:sign})"
+    ],
+    "description": "Returns magnitude with sign of second argument"
+  },
+  "Truncate": {
+    "prefix": "trunc",
+    "body": [
+      "_truncf(${1:x})"
+    ],
+    "description": "Truncate to integer (towards zero)"
+  },
+  "Float Modulo": {
+    "prefix": "fmod",
+    "body": [
+      "_fmod(${1:x}, ${2:y})"
+    ],
+    "description": "Floating-point remainder of x/y"
+  },
+  "Float Divide": {
+    "prefix": "fdivide",
+    "body": [
+      "_fdivide(${1:x}, ${2:y})"
+    ],
+    "description": "Float division: x / y"
+  },
+  "Float Reciprocal": {
+    "prefix": "frecip",
+    "body": [
+      "_frecip(${1:x})"
+    ],
+    "description": "Float reciprocal: 1 / x"
+  },
+  "Reciprocal Square Root": {
+    "prefix": "rsqrt",
+    "body": [
+      "_rsqrtf(${1:x})"
+    ],
+    "description": "Reciprocal square root: 1 / sqrt(x)"
+  },
+  "Extract Exponent": {
+    "prefix": "frexp",
+    "body": [
+      "_frexp(${1:x}, ${2:exp})"
+    ],
+    "description": "Extract mantissa and exponent"
+  },
+  "Load Exponent": {
+    "prefix": "ldexp",
+    "body": [
+      "_ldexp(${1:x}, ${2:exp})"
+    ],
+    "description": "Load exponent: x * 2^exp"
+  },
+  "Integer Absolute": {
+    "prefix": "iabs",
+    "body": [
+      "abs(${1:x})"
+    ],
+    "description": "Integer absolute value"
+  },
+  "Integer Min": {
+    "prefix": "imin",
+    "body": [
+      "min(${1:x}, ${2:y})"
+    ],
+    "description": "Integer minimum"
+  },
+  "Integer Max": {
+    "prefix": "imax",
+    "body": [
+      "max(${1:x}, ${2:y})"
+    ],
+    "description": "Integer maximum"
+  },
+  "Sine Pi": {
+    "prefix": "sinpi",
+    "body": [
+      "_sinpif(${1:x})"
+    ],
+    "description": "Sine of x * pi"
+  },
+  "Cosine Pi": {
+    "prefix": "cospi",
+    "body": [
+      "_cospif(${1:x})"
+    ],
+    "description": "Cosine of x * pi"
+  }
+}

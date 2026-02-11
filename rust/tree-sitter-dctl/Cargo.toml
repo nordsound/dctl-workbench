@@ -1,0 +1,27 @@
+[package]
+name = "tree-sitter-dctl"
+version = "0.1.0"
+edition = "2021"
+description = "DCTL grammar for tree-sitter"
+license = "MIT"
+build = "build.rs"
+include = [
+    "Cargo.toml",
+    "build.rs",
+    "src/*.rs",
+    "src/parser.c",
+    "src/scanner.c",
+    "src/tree_sitter/*.h",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+tree-sitter = "0.26"

@@ -1,0 +1,32 @@
+{
+  "name": "dctl-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DCTL Workbench - A DCTL compiler and VS Code extension",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:wasm && npm run build --workspaces",
+    "build:wasm": "./scripts/build-wasm.sh all",
+    "build:wasm:rust": "./scripts/build-wasm.sh rust",
+    "build:wasm:native": "./scripts/build-wasm.sh native",
+    "build:core": "npm run build -w packages/core",
+    "build:cli": "npm run build -w packages/cli",
+    "build:vscode": "npm run build -w packages/vscode",
+    "setup:deps": "./scripts/setup-deps.sh",
+    "test": "npm run test --workspaces --if-present",
+    "test:rust": "cd rust && cargo test",
+    "coverage:rust": "./scripts/rust-coverage.sh",
+    "clean": "npm run clean --workspaces --if-present",
+    "clean:wasm": "rm -rf wasm/*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nordsound/dctl-workbench"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

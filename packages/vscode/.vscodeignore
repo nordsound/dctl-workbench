@@ -1,0 +1,12 @@
+**
+!package.json
+!language-configuration.json
+!LICENSE
+!out/**/*.js
+!out/**/*.js.map
+!out/**/*.wasm
+!out/**/*.d.ts
+!media/icon.png
+!media/exr-viewer.css
+!snippets/**
+!syntaxes/**

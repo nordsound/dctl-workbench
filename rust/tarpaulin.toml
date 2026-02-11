@@ -1,0 +1,45 @@
+# Tarpaulin configuration for Rust code coverage
+# Run with: cargo tarpaulin --config tarpaulin.toml
+
+[default]
+# Output formats
+out = ["Html", "Lcov", "Json"]
+
+# Output directory
+output-dir = "coverage"
+
+# Minimum coverage threshold (fail if below)
+fail-under = 70
+
+# Include all workspace members
+all = true
+
+# Exclude test files from coverage calculation
+exclude-files = ["**/tests/*", "**/*_test.rs"]
+
+# Skip functions that are hard to test (WASM bindings, etc.)
+# ignore = ["wasm_bindgen_*"]
+
+# Verbose output
+verbose = true
+
+# Run tests with release optimizations disabled for better coverage accuracy
+# (release builds may optimize away some branches)
+release = false
+
+# Timeout for each test (seconds)
+timeout = "120s"
+
+# Number of parallel test threads
+jobs = 4
+
+# Follow symlinks when searching for source files
+follow-exec = true
+
+# Engine selection (auto selects best available)
+engine = "auto"
+
+[report]
+# Coverage report settings
+# Generate branch coverage in addition to line coverage
+branch = true

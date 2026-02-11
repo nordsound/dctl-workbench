@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "dctl-compiler",
+    "naga-wasm",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"

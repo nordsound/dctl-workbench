@@ -1,0 +1,33 @@
+node_modules/
+deps/
+*.log
+.DS_Store
+
+# Build output
+out/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# VS Code extension test environment
+.vscode-test/
+
+# Rust build artifacts
+**/target/
+rust/Cargo.lock
+
+# Native WASM build artifacts
+native/*/build/
+
+# Test fixtures (binary files generated/copied for tests)
+test/fixtures/*.exr
+
+# VS Code extension package
+*.vsix
+
+# IDE
+.idea/

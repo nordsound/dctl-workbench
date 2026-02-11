@@ -1,0 +1,19 @@
+{
+  "name": "tree-sitter-dctl",
+  "version": "1.1.0",
+  "description": "DCTL grammar for tree-sitter (extends tree-sitter-cuda)",
+  "main": "index.js",
+  "scripts": {
+    "test": "./test-all-dctls.sh",
+    "generate": "tree-sitter generate",
+    "build-wasm": "tree-sitter build --wasm"
+  },
+  "keywords": ["tree-sitter", "dctl", "davinci", "resolve"],
+  "author": "DCTL Workbench",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.3",
+    "tree-sitter-cuda": "^0.21.1"
+  }
+}

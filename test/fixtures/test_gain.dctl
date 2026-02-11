@@ -1,0 +1,10 @@
+// Simple gain DCTL for testing
+// Multiplies the input color by 2.0
+
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 2.0, 0.0, 4.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float3 rgb = make_float3(p_R, p_G, p_B);
+    return rgb * gain;
+}

@@ -1,0 +1,847 @@
+/* EXR Viewer Styles */
+
+:root {
+    --toolbar-height: 36px;
+    --status-bar-height: 24px;
+    --bg-color: var(--vscode-editor-background, #1e1e1e);
+    --fg-color: var(--vscode-editor-foreground, #cccccc);
+    --border-color: var(--vscode-panel-border, #454545);
+    --select-bg: var(--vscode-dropdown-background, #3c3c3c);
+    --select-fg: var(--vscode-dropdown-foreground, #cccccc);
+    --select-border: var(--vscode-dropdown-border, #3c3c3c);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    color: var(--fg-color);
+    font-family: var(--vscode-font-family, 'Segoe UI', Tahoma, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+}
+
+#toolbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: var(--toolbar-height);
+    padding: 0 12px;
+    background-color: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.toolbar-group label {
+    font-size: 12px;
+    color: var(--fg-color);
+    opacity: 0.8;
+}
+
+.toolbar-group select {
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 12px;
+    min-width: 150px;
+    cursor: pointer;
+}
+
+.toolbar-group select:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007acc);
+}
+
+#image-info, #color-space-info {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.toolbar-right {
+    margin-left: auto;
+}
+
+.export-btn {
+    background-color: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #ffffff);
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.export-btn:hover {
+    background-color: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.export-btn:active {
+    background-color: var(--vscode-button-background, #0e639c);
+    opacity: 0.9;
+}
+
+.export-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Main content area with sidebar */
+.main-content {
+    display: flex;
+    height: calc(100% - var(--toolbar-height) - var(--status-bar-height));
+    overflow: hidden;
+    position: relative;
+}
+
+.resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background-color: transparent;
+    transition: background-color 0.15s;
+    flex-shrink: 0;
+}
+
+.resize-handle:hover {
+    background-color: var(--vscode-focusBorder, #007acc);
+}
+
+#canvas-container {
+    position: relative;
+    flex: 1;
+    overflow: auto;
+    background-color: #181818;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#canvas-container.can-pan {
+    cursor: grab;
+}
+
+#canvas-container.is-panning {
+    cursor: grabbing;
+    user-select: none;
+}
+
+/* Sidebar (common) */
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-color);
+    overflow: hidden;
+    transition: width 0.15s ease;
+}
+
+.sidebar-left {
+    border-right: 1px solid var(--border-color);
+}
+
+.sidebar-right {
+    border-left: 1px solid var(--border-color);
+}
+
+.sidebar.closed .sidebar-content {
+    display: none;
+}
+
+.sidebar.closed .sidebar-title {
+    display: none;
+}
+
+.sidebar.closed .sidebar-header {
+    padding: 8px 6px;
+    justify-content: center;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    min-height: 36px;
+}
+
+.sidebar-toggle {
+    background: none;
+    border: none;
+    color: var(--fg-color);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 10px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+
+.sidebar-toggle:hover {
+    opacity: 1;
+}
+
+.sidebar-title {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+/* Sidebar sections */
+.sidebar-section {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--fg-color);
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    transition: background-color 0.1s;
+}
+
+.section-header:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.section-toggle {
+    font-size: 8px;
+    opacity: 0.6;
+}
+
+.section-title {
+    font-weight: 500;
+}
+
+.section-content {
+    padding: 0 12px 8px;
+}
+
+/* Metadata display */
+.metadata-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.metadata-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    gap: 8px;
+}
+
+.metadata-label {
+    color: var(--fg-color);
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
+.metadata-value {
+    color: var(--fg-color);
+    font-family: var(--vscode-editor-font-family, monospace);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.metadata-empty {
+    font-size: 11px;
+    opacity: 0.5;
+    font-style: italic;
+}
+
+#preview-canvas {
+    image-rendering: pixelated;
+    background-color: #282828;
+}
+
+#status-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: var(--status-bar-height);
+    padding: 0 12px;
+    background-color: var(--bg-color);
+    border-top: 1px solid var(--border-color);
+    font-size: 11px;
+}
+
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.zoom-btn {
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 1px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.zoom-btn:hover {
+    background-color: var(--vscode-button-hoverBackground, #4c4c4c);
+}
+
+.zoom-btn:active {
+    background-color: var(--vscode-button-background, #0e639c);
+}
+
+.zoom-btn.active {
+    background-color: var(--vscode-button-background, #0e639c);
+    border-color: var(--vscode-button-background, #0e639c);
+}
+
+#zoom-info {
+    opacity: 0.7;
+    min-width: 45px;
+}
+
+#pixel-info {
+    opacity: 0.7;
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Loading state */
+.loading #canvas-container::before {
+    content: 'Loading...';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    opacity: 0.6;
+}
+
+/* Error state */
+.error #canvas-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.error-message {
+    color: var(--vscode-errorForeground, #f48771);
+    text-align: center;
+    padding: 20px;
+}
+
+/* =============================================================================
+   DCTL Panel Styles
+   ============================================================================= */
+
+.dctl-panel {
+    padding-bottom: 8px;
+}
+
+.dctl-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+}
+
+.dctl-enable {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.dctl-enable input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.dctl-file-btn {
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.dctl-file-btn:hover {
+    background-color: var(--vscode-button-hoverBackground, #4c4c4c);
+}
+
+.dctl-file-select {
+    flex: 1;
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dctl-file-select:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007acc);
+}
+
+.dctl-filename {
+    font-size: 11px;
+    color: var(--fg-color);
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.dctl-colorspace {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: 11px;
+}
+
+.dctl-colorspace label {
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
+.dctl-colorspace select {
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+    flex: 1;
+    cursor: pointer;
+}
+
+/* ACES 2.0 RGC Toggle */
+.dctl-rgc {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 11px;
+}
+
+.dctl-rgc-enable {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.dctl-rgc-enable input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.dctl-rgc-enable span {
+    opacity: 0.85;
+}
+
+.dctl-rgc-options {
+    padding: 6px 12px 8px;
+    margin-left: 4px;
+    border-left: 2px solid var(--border-color);
+    margin-top: 6px;
+}
+
+.dctl-rgc-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.dctl-rgc-row:last-child {
+    margin-bottom: 0;
+}
+
+.dctl-rgc-row label {
+    font-size: 11px;
+    opacity: 0.7;
+    min-width: 36px;
+}
+
+.dctl-rgc-row select {
+    flex: 1;
+    background: var(--input-background);
+    color: var(--foreground);
+    border: 1px solid var(--border-color);
+    border-radius: 2px;
+    padding: 2px 4px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.dctl-rgc-row select:focus {
+    outline: 1px solid var(--accent);
+    border-color: var(--accent);
+}
+
+/* DCTL Parameter Section */
+.dctl-params-section {
+    margin-top: 4px;
+    border-top: 1px solid var(--border-color);
+}
+
+.dctl-params-header {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.7;
+    padding: 8px 12px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* DCTL Parameter Controls */
+.dctl-params {
+    padding: 4px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dctl-params-empty {
+    font-size: 11px;
+    opacity: 0.5;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.dctl-param {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dctl-param-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dctl-param-label {
+    font-size: 11px;
+    min-width: 80px;
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Slider controls (SLIDER_FLOAT, SLIDER_INT) */
+.dctl-slider .dctl-param-row {
+    flex-wrap: wrap;
+}
+
+.dctl-slider input[type="range"] {
+    flex: 1;
+    min-width: 60px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--select-border);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.dctl-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--vscode-button-background, #0e639c);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.dctl-slider input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: var(--vscode-button-background, #0e639c);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+.dctl-slider input[type="number"] {
+    width: 55px;
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 4px;
+    font-size: 11px;
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Value box controls (VALUE_BOX) */
+.dctl-valuebox input[type="number"] {
+    flex: 1;
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.dctl-valuebox input[type="number"]::-webkit-inner-spin-button,
+.dctl-valuebox input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Checkbox controls (CHECK_BOX) */
+.dctl-checkbox input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    background-color: var(--input-bg);
+    border: 1px solid var(--select-border);
+    border-radius: 3px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.dctl-checkbox input[type="checkbox"]:hover {
+    border-color: var(--vscode-focusBorder, #007acc);
+}
+
+.dctl-checkbox input[type="checkbox"]:checked {
+    background-color: var(--vscode-button-background, #0e639c);
+    border-color: var(--vscode-button-background, #0e639c);
+}
+
+.dctl-checkbox input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.dctl-checkbox-label {
+    font-size: 11px;
+    cursor: pointer;
+    flex: 1;
+    opacity: 0.9;
+}
+
+.dctl-checkbox-label:hover {
+    opacity: 1;
+}
+
+/* Combobox controls (COMBO_BOX) */
+.dctl-combobox select {
+    flex: 1;
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+/* Color picker controls (COLOR_PICKER) */
+.dctl-colorpicker .dctl-param-row {
+    flex-wrap: wrap;
+}
+
+.dctl-colorpicker input[type="color"] {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    cursor: pointer;
+    background: none;
+}
+
+.dctl-colorpicker input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.dctl-colorpicker input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 1px;
+}
+
+.dctl-rgb-inputs {
+    display: flex;
+    gap: 4px;
+}
+
+.dctl-rgb-inputs input[type="number"] {
+    width: 45px;
+    background-color: var(--select-bg);
+    color: var(--select-fg);
+    border: 1px solid var(--select-border);
+    border-radius: 2px;
+    padding: 2px 4px;
+    font-size: 10px;
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Reset button */
+.dctl-reset-btn {
+    background: none;
+    border: none;
+    color: var(--fg-color);
+    opacity: 0.5;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 12px;
+    transition: opacity 0.1s;
+}
+
+.dctl-reset-btn:hover {
+    opacity: 1;
+}
+
+/* Disabled state */
+.dctl-panel.disabled .dctl-params,
+.dctl-panel.disabled .dctl-colorspace {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* ============================================
+   Loading Overlay - covers canvas container only
+   ============================================ */
+
+#loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(30, 30, 30, 0.95);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 100;
+}
+
+#loading-overlay.visible {
+    display: flex;
+}
+
+.spinner {
+    display: none;
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-color, #3c3c3c);
+    border-top-color: var(--vscode-button-background, #0e639c);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+#loading-overlay.loading .spinner {
+    display: block;
+}
+
+#loading-text {
+    color: var(--fg-color, #cccccc);
+    font-size: 14px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ============================================
+   HDR Controls
+   ============================================ */
+
+.hdr-controls {
+    display: flex;
+    align-items: center;
+    margin-left: 12px;
+}
+
+.hdr-btn {
+    background-color: var(--btn-bg, #3c3c3c);
+    color: var(--fg-color, #cccccc);
+    border: 1px solid var(--border-color, #454545);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.hdr-btn:hover {
+    background-color: var(--btn-hover-bg, #4a4a4a);
+}
+
+.hdr-btn.active {
+    background-color: #ff9800;
+    color: #000000;
+    border-color: #ff9800;
+    font-weight: 600;
+}
+
+.hdr-btn.active:hover {
+    background-color: #ffb74d;
+    border-color: #ffb74d;
+}
+
+.hdr-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
