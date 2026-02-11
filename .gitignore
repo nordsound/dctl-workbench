@@ -31,3 +31,7 @@ test/fixtures/*.exr
 
 # IDE
 .idea/
+
+# Secrets / credentials
+.env*
+.npmrc
