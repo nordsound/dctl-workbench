@@ -186,8 +186,10 @@ export class EXRModule {
         const wasmBinary = fs.readFileSync(wasmPath);
 
         // Load the Emscripten module factory
-        const openexrModule = await import(jsPath);
-        const createOpenEXR = openexrModule.default;
+        // Use require() instead of import() to avoid import.meta issues in CJS context
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const openexrModule = require(jsPath);
+        const createOpenEXR = openexrModule.default || openexrModule;
 
         // Create a new module instance with wasmBinary
         this.module = await createOpenEXR({

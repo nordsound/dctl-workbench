@@ -1,0 +1,85 @@
+name: WASM Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - 'native/**'
+      - 'scripts/build-wasm.sh'
+      - 'scripts/setup-deps.sh'
+
+concurrency:
+  group: wasm-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-wasm:
+    name: Build WASM Modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack@0.13.1 --locked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache deps
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: wasm-deps-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Setup external dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: npm run setup:deps
+
+      - name: Activate Emscripten (from cache)
+        if: steps.cache-deps.outputs.cache-hit == 'true'
+        working-directory: deps/emsdk
+        run: |
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Build Rust WASM
+        run: |
+          source deps/emsdk/emsdk_env.sh
+          npm run build:wasm:rust
+
+      - name: Build Native WASM
+        run: |
+          source deps/emsdk/emsdk_env.sh
+          npm run build:wasm:native
+
+      - name: Verify output
+        run: |
+          test -f wasm/dctl-compiler/dctl_compiler_bg.wasm || { echo "FAIL: dctl-compiler WASM missing"; exit 1; }
+          test -f wasm/naga/naga_wasm_bg.wasm || { echo "FAIL: naga WASM missing"; exit 1; }
+          test -f wasm/openexr.wasm || { echo "FAIL: openexr WASM missing"; exit 1; }
+          test -f wasm/ocio.wasm || { echo "FAIL: ocio WASM missing"; exit 1; }
+          echo "=== WASM Module Sizes ==="
+          ls -lh wasm/*.wasm wasm/*/*.wasm 2>/dev/null
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-modules
+          path: wasm/
+          retention-days: 30

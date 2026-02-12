@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-ts:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack@0.13.1 --locked
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Rust WASM
+        run: npm run build:wasm:rust
+
+      - name: Build packages
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/cli
+          npm run build -w packages/vscode
+          npm run copy-wasm -w packages/vscode
+
+      - name: Test core
+        run: npm test -w packages/core
+
+      - name: Test CLI
+        run: npm test -w packages/cli
+
+      - name: Test VS Code extension (unit)
+        run: npm run test:unit -w packages/vscode
+
+  test-rust:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Run tests
+        working-directory: rust
+        run: cargo test --workspace
+
+      - uses: taiki-e/install-action@cargo-tarpaulin
+
+      - name: Run coverage
+        working-directory: rust
+        run: cargo tarpaulin --config tarpaulin.toml
