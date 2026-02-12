@@ -149,24 +149,26 @@ function convertDefineUiParams(match: string, indent: string, args: string): str
 
     // Handle COMBO_BOX enum values
     // Format: DEFINE_UI_PARAMS(name, label, DCTLUI_COMBO_BOX, default, {enum1, enum2, ...}, {label1, label2, ...})
+    // All declarations are placed on a single line to preserve line count mapping
     if (uiType.includes('COMBO_BOX') && argList.length >= 5) {
         // Find the enum list (enclosed in braces)
         const fullArgs = args;
         const enumMatch = fullArgs.match(/\{([^}]+)\}/);
         if (enumMatch) {
             const enumValues = enumMatch[1].split(',').map(s => s.trim());
-            // Generate integer constants for each enum value
+            // Generate integer constants for each enum value (on same line)
             enumValues.forEach((enumName, index) => {
                 if (enumName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(enumName)) {
-                    result += `${indent}int ${enumName} = ${index};\n`;
+                    result += `int ${enumName} = ${index}; `;
                 }
             });
         }
     }
 
-    // Return variable declaration
-    result += `${indent}${varType} ${varName}; // [DCTL_MACRO] DEFINE_UI_PARAMS`;
-    return result;
+    // Return variable declaration (all on one line to preserve line mapping)
+    result += `${varType} ${varName}; // [DCTL_MACRO] DEFINE_UI_PARAMS`;
+    return `${indent}${result}`;
+
 }
 
 /**
@@ -176,23 +178,25 @@ const DCTL_TRANSFORMS: Array<{ pattern: RegExp; replacement: string | ((match: s
     // Convert DEFINE_UI_PARAMS to variable declarations
     // Note: Using .+ instead of [\s\S]*? to stay on single line (. doesn't match newlines)
     // Pattern allows for trailing // comments after the closing paren
+    // IMPORTANT: Use [ \t]* (not \s*) after ')' to avoid consuming newlines across line boundaries
     {
-        pattern: /^(\s*)DEFINE_UI_PARAMS\s*\((.+)\)\s*;?\s*(?:\/\/.*)?$/gm,
+        pattern: /^([ \t]*)DEFINE_UI_PARAMS\s*\((.+)\)[ \t]*;?[ \t]*(?:\/\/.*)?$/gm,
         replacement: (match: string, indent: string, args: string) => convertDefineUiParams(match, indent, args)
     },
     // Remove other DEFINE_* macros by converting to comments
-    { pattern: /^(\s*)DEFINE_UI_TOOLTIP\s*\(.+\)\s*;?\s*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_UI_TOOLTIP' },
-    { pattern: /^(\s*)DEFINE_ACES_PARAM\s*\(.+\)\s*;?\s*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_ACES_PARAM' },
+    // IMPORTANT: Use [ \t]* (not \s*) at end to avoid consuming newlines
+    { pattern: /^([ \t]*)DEFINE_UI_TOOLTIP\s*\(.+\)[ \t]*;?[ \t]*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_UI_TOOLTIP' },
+    { pattern: /^([ \t]*)DEFINE_ACES_PARAM\s*\(.+\)[ \t]*;?[ \t]*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_ACES_PARAM' },
     // DEFINE_DCTL_ALPHA_MODE macros (e.g., DEFINE_DCTL_ALPHA_MODE_STRAIGHT)
-    { pattern: /^(\s*)DEFINE_DCTL_ALPHA_MODE\w*\s*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_DCTL_ALPHA_MODE' },
+    { pattern: /^([ \t]*)DEFINE_DCTL_ALPHA_MODE\w*[ \t]*$/gm, replacement: '$1// [DCTL_MACRO] DEFINE_DCTL_ALPHA_MODE' },
     // Handle DEFINE_DCTL_ALPHA_MODE at start of file without leading whitespace
-    { pattern: /^DEFINE_DCTL_ALPHA_MODE\w*\s*$/m, replacement: '// [DCTL_MACRO] DEFINE_DCTL_ALPHA_MODE' },
+    { pattern: /^DEFINE_DCTL_ALPHA_MODE\w*[ \t]*$/m, replacement: '// [DCTL_MACRO] DEFINE_DCTL_ALPHA_MODE' },
 
-    // Remove __DEVICE__, __CONSTANT__, etc. modifiers
-    { pattern: /__DEVICE__\s+/g, replacement: '' },
-    { pattern: /__CONSTANT__\s+/g, replacement: 'const ' },
-    { pattern: /__GLOBAL__\s+/g, replacement: '' },
-    { pattern: /__LOCAL__\s+/g, replacement: '' },
+    // Replace __DEVICE__, __GLOBAL__, __LOCAL__ with spaces to preserve column positions
+    { pattern: /__DEVICE__\s+/g, replacement: (m: string) => ' '.repeat(m.length) },
+    { pattern: /__CONSTANT__\s+/g, replacement: (m: string) => 'const ' + ' '.repeat(m.length - 6) },
+    { pattern: /__GLOBAL__\s+/g, replacement: (m: string) => ' '.repeat(m.length) },
+    { pattern: /__LOCAL__\s+/g, replacement: (m: string) => ' '.repeat(m.length) },
 ];
 
 /**

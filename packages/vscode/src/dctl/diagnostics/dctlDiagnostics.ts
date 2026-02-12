@@ -11,6 +11,7 @@ import { DCTL_ERROR_CODES } from './errorCodes';
 import { FORBIDDEN_C_FUNCTIONS, UI_PARAM_LIMIT, DctlUIType, DCTL_BUILTIN_FUNCTIONS } from '../parser/types';
 import { DctlValidator, getDctlValidator } from '../validation';
 import { DctlPreprocessor } from '../preprocessor';
+import { analyzeDocument } from '@dctl-workbench/core';
 
 export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
     private diagnosticCollection: vscode.DiagnosticCollection;
@@ -233,6 +234,26 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 // (Naga would report similar errors, causing duplicates)
                 if (!hasSyntaxErrors && !hasDuplicateEntryPoints && this.nagaValidationEnabled && this.validator.isInitialized) {
                     await this.checkNagaValidationAsync(source, filePath, diagnostics);
+                }
+
+                // Semantic warnings (unused variables, unused functions)
+                if (!hasSyntaxErrors) {
+                    const analysis = analyzeDocument(source);
+                    for (const warning of analysis.warnings) {
+                        const warningLine = Math.max(0, warning.line - 1);
+                        const range = new vscode.Range(
+                            warningLine, warning.column - 1,
+                            warningLine, warning.column + 10
+                        );
+                        const diagnostic = new vscode.Diagnostic(
+                            range,
+                            warning.message,
+                            vscode.DiagnosticSeverity.Warning
+                        );
+                        diagnostic.code = warning.code;
+                        diagnostic.source = 'DCTL';
+                        diagnostics.push(diagnostic);
+                    }
                 }
             }
         } catch (error) {

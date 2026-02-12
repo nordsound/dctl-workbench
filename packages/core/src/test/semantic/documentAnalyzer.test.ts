@@ -234,6 +234,349 @@ this is not valid DCTL at all {{{
     });
 });
 
+describe('analyzeDocument warnings', () => {
+    it('should warn about unused variables (SEM_W002)', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const unusedWarning = result.warnings.find(w => w.code === 'SEM_W002' && w.message.includes('unused'));
+        assert.ok(unusedWarning, 'should have SEM_W002 warning for unused variable');
+    });
+
+    it('should warn about unused functions (SEM_W003)', () => {
+        const source = `
+__DEVICE__ float helper(float x) {
+    return x * 2.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const unusedFnWarning = result.warnings.find(w => w.code === 'SEM_W003' && w.message.includes('helper'));
+        assert.ok(unusedFnWarning, 'should have SEM_W003 warning for unused function');
+    });
+
+    it('should not warn about p_ prefixed parameters', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const pWidthWarning = result.warnings.find(w => w.message.includes('p_Width'));
+        assert.ok(!pWidthWarning, 'p_Width should not trigger unused warning');
+        const pHeightWarning = result.warnings.find(w => w.message.includes('p_Height'));
+        assert.ok(!pHeightWarning, 'p_Height should not trigger unused warning');
+    });
+
+    it('should not warn about entry point functions', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const transformWarning = result.warnings.find(w => w.message.includes('transform'));
+        assert.ok(!transformWarning, 'transform should not trigger unused function warning');
+    });
+
+    it('should not warn about builtin symbols', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const builtinWarning = result.warnings.find(w => w.message.includes('make_float3'));
+        assert.ok(!builtinWarning, 'builtin functions should not trigger warnings');
+    });
+
+    it('should map warning lines to original source', () => {
+        const source = `
+DEFINE_UI_PARAMS(gain, "Gain", DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+
+        assert.ok(result.warnings, 'warnings should exist on result');
+        const unusedWarning = result.warnings.find(w => w.code === 'SEM_W002' && w.message.includes('unused'));
+        assert.ok(unusedWarning, 'should have warning for unused variable');
+        // Line 5 in original source (after DEFINE_UI_PARAMS line)
+        assert.ok(unusedWarning.line > 0, 'warning line should be positive');
+    });
+});
+
+describe('analyzeDocument warning line mapping', () => {
+    it('should report correct line without macros', () => {
+        // Line 1: '' (empty from template literal)
+        // Line 2: __DEVICE__ float3 transform(...) {
+        // Line 3:     float unused = 1.0f;    <-- expected warning
+        // Line 4:     return make_float3(...);
+        // Line 5: }
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 3, `unused should be at original line 3, got ${w.line}`);
+    });
+
+    it('should report correct line with single DEFINE_UI_PARAMS', () => {
+        // Line 1: '' (empty)
+        // Line 2: DEFINE_UI_PARAMS(gain, ...)
+        // Line 3: '' (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float unused = 1.0f;    <-- expected warning
+        // Line 6:     return make_float3(...);
+        // Line 7: }
+        const source = `
+DEFINE_UI_PARAMS(gain, "Gain", DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 5, `unused should be at original line 5, got ${w.line}`);
+    });
+
+    it('should report correct line with multiple DEFINE_UI_PARAMS', () => {
+        // Line 1: '' (empty)
+        // Line 2: DEFINE_UI_PARAMS(gain, ...)
+        // Line 3: DEFINE_UI_PARAMS(offset, ...)
+        // Line 4: '' (empty)
+        // Line 5: __DEVICE__ float3 transform(...) {
+        // Line 6:     float unused = 1.0f;    <-- expected warning
+        // Line 7:     return make_float3(...);
+        // Line 8: }
+        const source = `
+DEFINE_UI_PARAMS(gain, "Gain", DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(offset, "Offset", DCTLUI_SLIDER_FLOAT, 0.0, -1.0, 1.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R * gain + offset, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 6, `unused should be at original line 6, got ${w.line}`);
+    });
+
+    it('should report correct line with COMBO_BOX (extra generated lines)', () => {
+        // Line 1: '' (empty)
+        // Line 2: DEFINE_UI_PARAMS(mode, ..., COMBO_BOX, ...)  <-- generates 3 extra enum lines
+        // Line 3: '' (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float unused = 1.0f;    <-- expected warning
+        // Line 6:     return make_float3(...);
+        // Line 7: }
+        const source = `
+DEFINE_UI_PARAMS(mode, "Mode", DCTLUI_COMBO_BOX, 0, {linear, log, gamma}, {Linear, Log, Gamma})
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 5, `unused should be at original line 5 (COMBO_BOX should not shift lines), got ${w.line}`);
+    });
+
+    it('should report correct line with #define macros', () => {
+        // Line 1: '' (empty)
+        // Line 2: #define MULTIPLIER 2.0f   <-- replaced with // comment, line count preserved
+        // Line 3: '' (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float unused = 1.0f;    <-- expected warning
+        // Line 6:     return make_float3(...);
+        // Line 7: }
+        const source = `
+#define MULTIPLIER 2.0f
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R * MULTIPLIER, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 5, `unused should be at original line 5, got ${w.line}`);
+    });
+
+    it('should report correct line with #ifdef block', () => {
+        // Line 1: '' (empty)
+        // Line 2: #ifdef SOME_FLAG         <-- replaced with // comment
+        // Line 3: int extra = 42;           <-- replaced with // [excluded]
+        // Line 4: #endif                    <-- replaced with // comment
+        // Line 5: '' (empty)
+        // Line 6: __DEVICE__ float3 transform(...) {
+        // Line 7:     float unused = 1.0f;    <-- expected warning
+        // Line 8:     return make_float3(...);
+        // Line 9: }
+        const source = `
+#ifdef SOME_FLAG
+int extra = 42;
+#endif
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have warning for unused variable');
+        assert.equal(w.line, 7, `unused should be at original line 7, got ${w.line}`);
+    });
+
+    it('should report correct line for unused function with DEFINE_UI_PARAMS', () => {
+        // Line 1: '' (empty)
+        // Line 2: DEFINE_UI_PARAMS(gain, ...)
+        // Line 3: '' (empty)
+        // Line 4: __DEVICE__ float helper(float x) {    <-- expected warning (SEM_W003)
+        // Line 5:     return x * 2.0f;
+        // Line 6: }
+        // Line 7: '' (empty)
+        // Line 8: __DEVICE__ float3 transform(...) {
+        // Line 9:     return make_float3(...);
+        // Line 10: }
+        const source = `
+DEFINE_UI_PARAMS(gain, "Gain", DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float helper(float x) {
+    return x * 2.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.code === 'SEM_W003' && w.message.includes('helper'));
+        assert.ok(w, 'should have SEM_W003 warning for unused function');
+        assert.equal(w.line, 4, `helper should be at original line 4, got ${w.line}`);
+    });
+
+    it('should report correct column for unused function with __DEVICE__', () => {
+        // __DEVICE__ is stripped by preprocessor, shifting columns.
+        // Warning column should match the ORIGINAL source position.
+        //
+        // Original line 15 of 05_random_noise.dctl:
+        //   __DEVICE__ float sst(int x) {
+        //   ^1        ^11  ^17 ^18
+        //   __DEVICE__ = 10 chars, space = 1, float = 5, space = 1 → sst starts at column 18
+        //
+        // After preprocessing: "float sst(int x) {"
+        //   sst starts at column 7 (wrong!)
+        const source = `
+__DEVICE__ float sst(int x) {
+    int y = x + 1;
+    return y;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.code === 'SEM_W003' && w.message.includes('sst'));
+        assert.ok(w, 'should have SEM_W003 warning for unused function sst');
+        // sst starts at column 18 in original source (after "__DEVICE__ float ")
+        assert.equal(w.column, 18, `sst column should be 18 in original source, got ${w.column}`);
+    });
+
+    it('should report correct column for unused variable with __DEVICE__', () => {
+        // In the function body, local variables are not affected by __DEVICE__ removal
+        // because __DEVICE__ only appears on the function signature line.
+        // But the variable declaration column should still be correct.
+        //
+        // Line: "    float unused = 1.0f;"
+        //        ^1   ^5              → "unused" is at column 5 (indentation) + "float " = column 11
+        //   Actually: 4 spaces + "float " = 4+6 = column 11 for "unused"
+        //   Wait - the preprocessor doesn't affect lines without __DEVICE__.
+        //   So columns of local variables should already be correct.
+        //   Let's verify that and also check a function on a line with __DEVICE__.
+        const source = `
+DEFINE_UI_PARAMS(noise_amount, Noise Amount, DCTL_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.01)
+DEFINE_UI_PARAMS(seed, Seed, DCTL_SLIDER_INT, 0, 0, 1000, 1)
+
+__DEVICE__ float hash(int x, int y, int s) {
+    int n = x + y * 57 + s * 131;
+    n = (n << 13) ^ n;
+    return (1.0f - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f) * 0.5f + 0.5f;
+}
+
+__DEVICE__ float sst(int x) {
+    int y = x + 1;
+    return y;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB) {
+    float r = _tex2D(p_TexR, p_X, p_Y);
+    float g = _tex2D(p_TexG, p_X, p_Y);
+    float b = _tex2D(p_TexB, p_X, p_Y);
+    float noise = hash(p_X, p_Y, seed);
+    float3 color = make_float3(r, g, b);
+    float3 noisy = make_float3(
+        r + (noise - 0.5f) * noise_amount,
+        g + (noise - 0.5f) * noise_amount,
+        b + (noise - 0.5f) * noise_amount
+    );
+    return noisy;
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.code === 'SEM_W003' && w.message.includes('sst'));
+        assert.ok(w, 'should have SEM_W003 warning for unused function sst');
+        // "sst" at column 18 in original: "__DEVICE__ float sst(int x) {"
+        assert.equal(w.column, 18, `sst column should be 18, got ${w.column}`);
+    });
+
+    it('should handle #include gracefully (line count preserved)', () => {
+        // #include is NOT expanded by preprocessDctl, it passes through as-is.
+        // The parser may or may not handle it, but line count should be preserved.
+        // Line 1: '' (empty)
+        // Line 2: #include "some_header.h"   <-- not expanded, passes through
+        // Line 3: '' (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float unused = 1.0f;
+        // Line 6:     return make_float3(...);
+        // Line 7: }
+        const source = `
+#include "some_header.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        // analyzeDocument should not throw
+        assert.ok(result, 'should return a result');
+        // If warnings exist, verify line mapping is correct
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        if (w) {
+            assert.equal(w.line, 5, `unused should be at original line 5, got ${w.line}`);
+        }
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
