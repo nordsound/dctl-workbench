@@ -1,5 +1,35 @@
 import * as vscode from 'vscode';
 import { DCTL_FUNCTION_DOCS, DCTL_KEYWORD_DOCS, DCTL_UI_TYPES } from './documentation';
+import {
+    analyzeDocument,
+    getMemberCompletions,
+    type DocumentAnalysisResult,
+    type DocumentSymbol,
+} from '@dctl-workbench/core';
+
+/** Cached analysis result per document */
+interface CachedAnalysis {
+    version: number;
+    result: DocumentAnalysisResult;
+}
+
+/** Shared analysis cache (also used by hover provider) */
+export const analysisCache = new Map<string, CachedAnalysis>();
+
+/**
+ * Get or update the cached analysis for a document
+ */
+function getAnalysis(document: vscode.TextDocument): DocumentAnalysisResult {
+    const uri = document.uri.toString();
+    const cached = analysisCache.get(uri);
+    if (cached && cached.version === document.version) {
+        return cached.result;
+    }
+
+    const result = analyzeDocument(document.getText());
+    analysisCache.set(uri, { version: document.version, result });
+    return result;
+}
 
 /**
  * Provides auto-completion for DCTL files
@@ -28,8 +58,88 @@ export class DctlCompletionProvider implements vscode.CompletionItemProvider {
             return this.uiTypeCompletions;
         }
 
-        // Return all completions (functions and keywords)
-        return [...this.functionCompletions, ...this.keywordCompletions];
+        // Member completion on '.' trigger
+        if (context.triggerCharacter === '.' || linePrefix.endsWith('.')) {
+            return this.provideMemberCompletions(document, linePrefix);
+        }
+
+        // Static completions + dynamic user-defined symbols
+        const analysis = getAnalysis(document);
+        const dynamicItems = this.createDynamicCompletions(analysis.symbols);
+
+        return [...this.functionCompletions, ...this.keywordCompletions, ...dynamicItems];
+    }
+
+    private provideMemberCompletions(
+        document: vscode.TextDocument,
+        linePrefix: string
+    ): vscode.CompletionItem[] {
+        // Extract the identifier before the '.'
+        const match = linePrefix.match(/([a-zA-Z_][a-zA-Z0-9_]*)\.\s*$/);
+        if (!match) return [];
+
+        const identifierName = match[1];
+        const analysis = getAnalysis(document);
+
+        // Look up the variable's type:
+        // 1. Try symbol table (global scope)
+        // 2. Fall back to variableTypes map (includes params + locals)
+        let typeName: string | undefined;
+        const sym = analysis.symbolTable.lookup(identifierName);
+        if (sym) {
+            typeName = analysis.symbolTable.resolveType(sym.type.name);
+        } else {
+            typeName = analysis.variableTypes.get(identifierName);
+        }
+        if (!typeName) return [];
+        const members = getMemberCompletions(typeName, analysis.symbolTable);
+
+        return members.map(m => {
+            const item = new vscode.CompletionItem(m.name, vscode.CompletionItemKind.Field);
+            item.detail = m.detail;
+            item.sortText = `0_${m.name}`;
+            return item;
+        });
+    }
+
+    private createDynamicCompletions(symbols: DocumentSymbol[]): vscode.CompletionItem[] {
+        return symbols.map(sym => {
+            let kind: vscode.CompletionItemKind;
+            switch (sym.kind) {
+                case 'function':
+                    kind = vscode.CompletionItemKind.Function;
+                    break;
+                case 'struct':
+                    kind = vscode.CompletionItemKind.Struct;
+                    break;
+                case 'constant':
+                    kind = vscode.CompletionItemKind.Constant;
+                    break;
+                default:
+                    kind = vscode.CompletionItemKind.Variable;
+                    break;
+            }
+
+            const item = new vscode.CompletionItem(sym.name, kind);
+            item.detail = sym.detail || sym.type;
+
+            if (sym.kind === 'function' && sym.detail) {
+                // Insert function call with snippet placeholders
+                const paramMatch = sym.detail.match(/\(([^)]*)\)/);
+                if (paramMatch && paramMatch[1].trim()) {
+                    const params = paramMatch[1].split(',').map((p, i) => {
+                        const paramName = p.trim().split(/\s+/).pop() || `arg${i}`;
+                        return `\${${i + 1}:${paramName}}`;
+                    });
+                    item.insertText = new vscode.SnippetString(`${sym.name}(${params.join(', ')})`);
+                } else {
+                    item.insertText = new vscode.SnippetString(`${sym.name}($0)`);
+                }
+            }
+
+            item.sortText = `2_${sym.name}`; // Sort after static completions
+            return item;
+        });
     }
 
     private isInUIParamsContext(linePrefix: string): boolean {
