@@ -233,7 +233,19 @@ export class DctlCompiler {
 
             // Step 5: Compile via Rust backend
             const resultJson = this.module.compile_from_ast(rustAstJson);
-            return JSON.parse(resultJson);
+            const result = JSON.parse(resultJson);
+
+            // Step 6: Adjust diagnostic line numbers to remove DCTL_TYPE_DEFINITIONS header offset
+            // The TS parser produces AST nodes with line numbers that include the prepended header.
+            // The Rust backend returns diagnostics using those inflated line numbers.
+            // We subtract (headerLineCount - 1) so diagnostics map back to the original source.
+            if (!result.error && result.diagnostics) {
+                for (const diag of result.diagnostics) {
+                    diag.line = Math.max(1, diag.line - (headerLineCount - 1));
+                }
+            }
+
+            return result;
         } catch (err) {
             return {
                 error: true,
