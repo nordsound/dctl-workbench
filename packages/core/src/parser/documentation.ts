@@ -21,7 +21,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns the absolute value of x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: 'Absolute value of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float diff = _fabs(r - g); // absolute difference between channels'
     },
     {
         name: '_powf',
@@ -32,7 +33,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Exponent value' }
         ],
         returns: 'x^y',
-        category: 'Math'
+        category: 'Math',
+        example: 'float gamma = _powf(r, 1.0f / 2.2f); // apply gamma correction'
     },
     {
         name: '_sqrtf',
@@ -40,7 +42,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the non-negative square root of x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value (must be >= 0)' }],
         returns: 'Square root of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float luma = _sqrtf(r * r * 0.2126f + g * g * 0.7152f + b * b * 0.0722f);'
     },
     {
         name: '_rsqrtf',
@@ -48,7 +51,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the reciprocal of square root of x (1/sqrt(x))',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: '1/sqrt(x)',
-        category: 'Math'
+        category: 'Math',
+        example: 'float invLen = _rsqrtf(x * x + y * y + z * z); // fast normalize'
     },
 
     // Math - Exponential/Logarithmic
@@ -58,7 +62,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the natural logarithm (base e) of x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value (must be > 0)' }],
         returns: 'Natural log of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float logVal = _logf(r + 0.001f); // natural log with offset to avoid log(0)'
     },
     {
         name: '_log2f',
@@ -66,7 +71,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the base-2 logarithm of x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value (must be > 0)' }],
         returns: 'Log base 2 of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float stops = _log2f(exposure); // convert exposure ratio to stops'
     },
     {
         name: '_log10f',
@@ -74,7 +80,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the base-10 logarithm of x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value (must be > 0)' }],
         returns: 'Log base 10 of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float cv = _log10f(x * 1023.0f + 1.0f) / _log10f(1024.0f); // Cineon-style log encoding'
     },
     {
         name: '_expf',
@@ -82,7 +89,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes e^x, the base-e exponential of x',
         parameters: [{ name: 'x', type: 'float', description: 'Exponent value' }],
         returns: 'e^x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float linear = _expf(logVal); // inverse of _logf'
     },
     {
         name: '_exp2f',
@@ -90,7 +98,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes 2^x, the base-2 exponential of x',
         parameters: [{ name: 'x', type: 'float', description: 'Exponent value' }],
         returns: '2^x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float gain = _exp2f(stops); // convert stops to linear gain multiplier'
     },
     {
         name: '_exp10f',
@@ -98,7 +107,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes 10^x, the base-10 exponential of x',
         parameters: [{ name: 'x', type: 'float', description: 'Exponent value' }],
         returns: '10^x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float linear = (_exp10f(cv * _log10f(1024.0f)) - 1.0f) / 1023.0f; // Cineon log decode'
     },
 
     // Math - Trigonometric
@@ -108,7 +118,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the sine of x (measured in radians)',
         parameters: [{ name: 'x', type: 'float', description: 'Angle in radians' }],
         returns: 'Sine of x',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float hue_shift = _sinf(angle) * saturation; // sinusoidal hue rotation'
     },
     {
         name: '_cosf',
@@ -116,7 +127,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the cosine of x (measured in radians)',
         parameters: [{ name: 'x', type: 'float', description: 'Angle in radians' }],
         returns: 'Cosine of x',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float rr = r * _cosf(angle) - g * _sinf(angle); // 2D color rotation'
     },
     {
         name: '_tanf',
@@ -124,7 +136,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the tangent of x (measured in radians)',
         parameters: [{ name: 'x', type: 'float', description: 'Angle in radians' }],
         returns: 'Tangent of x',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float slope = _tanf(angle); // convert angle to slope'
     },
     {
         name: '_asinf',
@@ -132,7 +145,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the principal value of the arc sine of x',
         parameters: [{ name: 'x', type: 'float', description: 'Value in range [-1, 1]' }],
         returns: 'Arc sine of x in radians',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float angle = _asinf(_clampf(y / radius, -1.0f, 1.0f));'
     },
     {
         name: '_acosf',
@@ -140,7 +154,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the principal value of the arc cosine of x',
         parameters: [{ name: 'x', type: 'float', description: 'Value in range [-1, 1]' }],
         returns: 'Arc cosine of x in radians',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float angle = _acosf(_clampf(dot, -1.0f, 1.0f)); // angle between vectors'
     },
     {
         name: '_atan2f',
@@ -151,7 +166,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'x', type: 'float', description: 'X coordinate' }
         ],
         returns: 'Arc tangent of y/x in radians',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float hue = _atan2f(b - g, r - 0.5f * (g + b)); // compute hue angle'
     },
     {
         name: '_sinpif',
@@ -159,7 +175,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the sine of (x * pi)',
         parameters: [{ name: 'x', type: 'float', description: 'Value to multiply by pi' }],
         returns: 'sin(x * pi)',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float wave = _sinpif(2.0f * x); // sine wave with period 1.0'
     },
     {
         name: '_cospif',
@@ -167,7 +184,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Computes the cosine of (x * pi)',
         parameters: [{ name: 'x', type: 'float', description: 'Value to multiply by pi' }],
         returns: 'cos(x * pi)',
-        category: 'Trigonometry'
+        category: 'Trigonometry',
+        example: 'float window = 0.5f * (1.0f - _cospif(2.0f * t)); // Hann window function'
     },
 
     // Math - Rounding
@@ -177,7 +195,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns the smallest integral value greater than or equal to x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: 'Ceiling of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'int lutSize = (int)_ceilf(size); // round up to next whole LUT entry'
     },
     {
         name: '_floorf',
@@ -185,7 +204,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns the largest integral value less than or equal to x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: 'Floor of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float frac = x - _floorf(x); // extract fractional part for interpolation'
     },
     {
         name: '_truncf',
@@ -193,7 +213,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns the integral value nearest to but no larger in magnitude than x',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: 'Truncated value of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'float whole = _truncf(value); // discard fractional part towards zero'
     },
     {
         name: '_round',
@@ -201,7 +222,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns the integral value nearest to x, rounding half-way cases away from zero',
         parameters: [{ name: 'x', type: 'float', description: 'Input value' }],
         returns: 'Rounded value of x',
-        category: 'Math'
+        category: 'Math',
+        example: 'int cv = (int)_round(value * 1023.0f); // quantize to 10-bit code value'
     },
 
     // Math - Min/Max/Clamp
@@ -214,7 +236,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Second value' }
         ],
         returns: 'Maximum of x and y',
-        category: 'Math'
+        category: 'Math',
+        example: 'float maxChan = _fmaxf(r, _fmaxf(g, b)); // max RGB channel'
     },
     {
         name: '_fminf',
@@ -225,7 +248,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Second value' }
         ],
         returns: 'Minimum of x and y',
-        category: 'Math'
+        category: 'Math',
+        example: 'float minChan = _fminf(r, _fminf(g, b)); // min RGB channel'
     },
     {
         name: '_clampf',
@@ -237,7 +261,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'max', type: 'float', description: 'Maximum bound' }
         ],
         returns: 'Clamped value',
-        category: 'Math'
+        category: 'Math',
+        example: 'float safe = _clampf(input, 0.0f, 1.0f); // keep in display range'
     },
     {
         name: '_saturatef',
@@ -245,7 +270,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Clamps x to be within the interval [0.0, 1.0]',
         parameters: [{ name: 'x', type: 'float', description: 'Value to saturate' }],
         returns: 'Value clamped to [0.0, 1.0]',
-        category: 'Math'
+        category: 'Math',
+        example: 'float mask = _saturatef(luma * contrast); // create soft mask'
     },
 
     // Math - Misc
@@ -271,7 +297,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Sign value' }
         ],
         returns: 'x with sign of y',
-        category: 'Math'
+        category: 'Math',
+        example: 'float result = _copysignf(_fabs(val), direction); // magnitude of val, sign of direction'
     },
     {
         name: '_fmod',
@@ -282,7 +309,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Divisor' }
         ],
         returns: 'Remainder of x/y',
-        category: 'Math'
+        category: 'Math',
+        example: 'float hue = _fmod(h + shift, 360.0f); // wrap hue angle to [0, 360)'
     },
     {
         name: '_hypotf',
@@ -293,7 +321,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Second leg' }
         ],
         returns: 'Hypotenuse length',
-        category: 'Math'
+        category: 'Math',
+        example: 'float chroma = _hypotf(a, b); // CIELab chroma from a*, b*'
     },
 
     // Texture
@@ -321,7 +350,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'y', type: 'float', description: 'Y component' }
         ],
         returns: 'float2 vector',
-        category: 'Vector'
+        category: 'Vector',
+        example: 'float2 uv = make_float2((float)p_X / p_Width, (float)p_Y / p_Height);'
     },
     {
         name: 'make_float3',
@@ -347,7 +377,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'w', type: 'float', description: 'W/A component' }
         ],
         returns: 'float4 vector',
-        category: 'Vector'
+        category: 'Vector',
+        example: 'float4 rgba = make_float4(r, g, b, 1.0f); // RGBA with full opacity'
     },
 
     // LUT
@@ -362,7 +393,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
             { name: 'lutName', type: 'identifier', description: 'Name of LUT defined with DEFINE_LUT' }
         ],
         returns: 'Transformed RGB values',
-        category: 'LUT'
+        category: 'LUT',
+        example: 'DEFINE_LUT(myLut, 65)\nfloat3 result = APPLY_LUT(r, g, b, myLut);'
     },
 
     // Random
@@ -372,7 +404,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Generates a pseudo-random float value between 0.0 and 1.0 with uniform distribution (Resolve 19.1+)',
         parameters: [{ name: 'seed', type: 'uint', description: 'Random seed value' }],
         returns: 'Random float in [0.0, 1.0]',
-        category: 'Utility'
+        category: 'Utility',
+        example: 'float noise = (RAND(p_Y * p_Width + p_X) - 0.5f) * amount; // per-pixel dither'
     },
 
     // Check functions
@@ -382,7 +415,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns a non-zero value if and only if x is an infinite value',
         parameters: [{ name: 'x', type: 'float', description: 'Value to check' }],
         returns: 'Non-zero if x is infinite',
-        category: 'Utility'
+        category: 'Utility',
+        example: 'if (isinf(r)) r = 0.0f; // replace infinity with zero'
     },
     {
         name: 'isnan',
@@ -390,7 +424,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns a non-zero value if and only if x is NaN (Not a Number)',
         parameters: [{ name: 'x', type: 'float', description: 'Value to check' }],
         returns: 'Non-zero if x is NaN',
-        category: 'Utility'
+        category: 'Utility',
+        example: 'if (isnan(r)) r = 0.0f; // sanitize NaN values'
     },
     {
         name: 'signbit',
@@ -398,7 +433,8 @@ export const DCTL_FUNCTION_DOCS: DctlFunctionDoc[] = [
         description: 'Returns a non-zero value if and only if the sign bit of x is set',
         parameters: [{ name: 'x', type: 'float', description: 'Value to check' }],
         returns: 'Non-zero if x is negative',
-        category: 'Utility'
+        category: 'Utility',
+        example: 'if (signbit(val)) val = 0.0f; // clamp negative values to zero'
     },
 ];
 
