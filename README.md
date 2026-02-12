@@ -8,6 +8,8 @@ DCTL (DaVinci Color Transform Language) is a shader-like language used in [DaVin
 
 DCTL Workbench provides a complete development environment for writing, testing, and previewing DCTL effects outside of DaVinci Resolve, with full ACES color pipeline support.
 
+![DCTL Editor](images/DCTL_editor.png)
+
 ## Features
 
 ### VS Code Extension
