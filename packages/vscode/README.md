@@ -8,7 +8,7 @@ A Visual Studio Code extension for developing DaVinci Color Transform Language (
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Pre--Release](https://img.shields.io/badge/status-pre--release-orange)
 
-![DCTL Editor](../../images/DCTL_editor.png)
+![DCTL Editor](https://raw.githubusercontent.com/nordsound/dctl-workbench/main/images/DCTL_editor.png)
 
 ## Features
 
