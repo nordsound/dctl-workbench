@@ -1,5 +1,22 @@
 import * as vscode from 'vscode';
 import { DCTL_FUNCTION_MAP, DCTL_KEYWORD_MAP, DctlFunctionDoc, DctlKeywordDoc } from './documentation';
+import { analyzeDocument, type DocumentAnalysisResult } from '@dctl-workbench/core';
+import { analysisCache } from './completionProvider';
+
+/**
+ * Get or update the cached analysis for a document
+ */
+function getAnalysis(document: vscode.TextDocument): DocumentAnalysisResult {
+    const uri = document.uri.toString();
+    const cached = analysisCache.get(uri);
+    if (cached && cached.version === document.version) {
+        return cached.result;
+    }
+
+    const result = analyzeDocument(document.getText());
+    analysisCache.set(uri, { version: document.version, result });
+    return result;
+}
 
 /**
  * Provides hover information for DCTL files
@@ -18,7 +35,7 @@ export class DctlHoverProvider implements vscode.HoverProvider {
 
         const word = document.getText(wordRange);
 
-        // Check if it's a function
+        // Check if it's a builtin function (static docs take priority)
         const funcDoc = DCTL_FUNCTION_MAP.get(word);
         if (funcDoc) {
             return this.createFunctionHover(funcDoc);
@@ -30,7 +47,37 @@ export class DctlHoverProvider implements vscode.HoverProvider {
             return this.createKeywordHover(keywordDoc);
         }
 
+        // Check user-defined symbols from document analysis
+        const analysis = getAnalysis(document);
+        const userSymbol = analysis.symbols.find(s => s.name === word);
+        if (userSymbol) {
+            return this.createUserSymbolHover(userSymbol);
+        }
+
         return null;
+    }
+
+    private createUserSymbolHover(sym: { name: string; kind: string; type: string; detail?: string; line: number }): vscode.Hover {
+        const markdown = new vscode.MarkdownString();
+        markdown.isTrusted = true;
+
+        if (sym.kind === 'function' && sym.detail) {
+            markdown.appendCodeblock(sym.detail, 'c');
+        } else {
+            const prefix = sym.kind === 'struct' ? 'struct' : sym.type;
+            markdown.appendCodeblock(`${prefix} ${sym.name}`, 'c');
+        }
+
+        const kindLabel = sym.kind === 'variable' ? 'variable'
+            : sym.kind === 'function' ? 'function'
+            : sym.kind === 'parameter' ? 'parameter'
+            : sym.kind === 'struct' ? 'struct'
+            : sym.kind === 'constant' ? 'constant'
+            : sym.kind;
+
+        markdown.appendMarkdown(`\n*(${kindLabel}) — line ${sym.line}*`);
+
+        return new vscode.Hover(markdown);
     }
 
     private createFunctionHover(doc: DctlFunctionDoc): vscode.Hover {

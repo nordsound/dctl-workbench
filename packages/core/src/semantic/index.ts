@@ -37,3 +37,6 @@ export {
 
 export { SEMANTIC_ERROR_CODES, SEMANTIC_WARNING_CODES } from './errorCodes.js';
 export type { SemanticErrorCode, SemanticWarningCode } from './errorCodes.js';
+
+export { analyzeDocument, getMemberCompletions } from './documentAnalyzer.js';
+export type { DocumentSymbol, DocumentAnalysisResult } from './documentAnalyzer.js';
