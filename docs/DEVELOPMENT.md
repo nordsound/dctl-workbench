@@ -208,6 +208,25 @@ make clean && make DEBUG=1
 4. Add TypeScript bindings in `packages/core`
 5. Update `npm run build:wasm` script
 
+## Publishing
+
+### VS Code Extension
+
+```bash
+cd packages/vscode
+npx vsce publish --pre-release --no-dependencies
+```
+
+`--pre-release` publishes the extension as a pre-release version on the Marketplace. Users must explicitly opt in to receive pre-release updates. Remove this flag for stable releases.
+
+`--no-dependencies` is required. In this monorepo, `@dctl-workbench/core` is referenced via npm workspace symlinks. Without this flag, vsce follows the symlink and bundles the entire `packages/core` directory into the vsix. Since esbuild already bundles all required code into `extension.js`, including `node_modules` is unnecessary.
+
+### Release Steps
+
+1. Update `version` in `packages/vscode/package.json`
+2. Create a PR from a feature branch and pass CI
+3. After merging to main, publish to the Marketplace with the command above
+
 ## Troubleshooting
 
 ### WASM Build Fails
