@@ -143,7 +143,9 @@ int result = MULTILINE;
         it('should convert __CONSTANT__ to const', () => {
             const source = '__CONSTANT__ float PI = 3.14159;';
             const result = preprocessDctl(source);
-            assert.ok(result.code.includes('const float PI'));
+            // __CONSTANT__ (12 chars + space) → 'const' + spaces to preserve column positions
+            assert.ok(result.code.includes('const'));
+            assert.ok(result.code.includes('float PI'));
         });
 
         it('should comment out DEFINE_UI_TOOLTIP', () => {

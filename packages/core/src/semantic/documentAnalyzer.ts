@@ -9,7 +9,7 @@ import { preprocessDctl } from '../parser/dctlPreprocessor.js';
 import { parseDctl } from '../parser/dctlParser.js';
 import { SemanticAnalyzer } from './analyzer.js';
 import { SymbolTable } from './symbolTable.js';
-import type { SymbolKind, SemanticError } from './types.js';
+import type { SymbolKind, SemanticError, SemanticWarning } from './types.js';
 import { isVectorType, getVectorSize, getVectorElementType } from './types.js';
 import type {
     ModuleNode,
@@ -39,6 +39,8 @@ export interface DocumentAnalysisResult {
     symbolTable: SymbolTable;
     ast: ModuleNode | null;
     errors: SemanticError[];
+    /** Semantic warnings (unused variables, unused functions, etc.) */
+    warnings: SemanticWarning[];
     /** All user-defined symbols (variables, functions, params, structs, constants) */
     symbols: DocumentSymbol[];
     /** Flat map of all variable names → type names (globals, params, locals) for type resolution */
@@ -60,6 +62,7 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
         symbolTable: new SymbolTable(),
         ast: null,
         errors: [],
+        warnings: [],
         symbols: [],
         variableTypes: new Map(),
         lineOffset: 0,
@@ -87,10 +90,22 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
         // Step 5: Build variable type map from AST (params + locals + globals)
         const variableTypes = collectVariableTypes(parseResult.ast, symbolTable, lineOffset);
 
+        // Filter warnings from preprocessor header and map line numbers to original source.
+        // headerLineCount is DCTL_TYPE_DEFINITIONS.split('\n').length (e.g. 82), but the actual
+        // number of header lines is headerLineCount - 1 (e.g. 81) because the trailing '\n'
+        // adds an extra empty entry in the split. So: originalLine = preprocessedLine - (headerLineCount - 1)
+        const warnings = analysisResult.warnings
+            .filter(w => w.line > lineOffset)
+            .map(w => ({
+                ...w,
+                line: w.line - lineOffset + 1,
+            }));
+
         return {
             symbolTable,
             ast: parseResult.ast,
             errors: analysisResult.errors,
+            warnings,
             symbols,
             variableTypes,
             lineOffset,
@@ -122,7 +137,7 @@ function extractUserSymbols(
             kind: sym.kind,
             type: sym.type.name,
             detail: sym.constValue !== undefined ? `= ${sym.constValue}` : undefined,
-            line: Math.max(1, sym.loc.line - lineOffset),
+            line: Math.max(1, sym.loc.line - lineOffset + 1),
         });
         seen.add(sym.name);
     }
@@ -141,7 +156,7 @@ function extractUserSymbols(
             kind: 'function',
             type: fn.returnType.name,
             detail: signature,
-            line: Math.max(1, fn.loc.line - lineOffset),
+            line: Math.max(1, fn.loc.line - lineOffset + 1),
         });
         seen.add(fn.name);
     }
@@ -160,7 +175,7 @@ function extractUserSymbols(
                 kind: 'parameter',
                 type: param.type.name,
                 detail: `${param.type.name} ${param.name}`,
-                line: Math.max(1, (param.loc?.line ?? fn.loc.line) - lineOffset),
+                line: Math.max(1, (param.loc?.line ?? fn.loc.line) - lineOffset + 1),
             });
             seen.add(param.name);
         }
@@ -180,7 +195,7 @@ function extractUserSymbols(
             kind: 'struct',
             type: struct.name,
             detail: `struct ${struct.name} { ${struct.fields.map(f => f.type.name + ' ' + f.name).join('; ')} }`,
-            line: Math.max(1, struct.loc.line - lineOffset),
+            line: Math.max(1, struct.loc.line - lineOffset + 1),
         });
     }
 
@@ -204,7 +219,7 @@ function collectBlockSymbols(
                     kind: 'variable',
                     type: stmt.type.name,
                     detail: `${stmt.type.name} ${stmt.name}`,
-                    line: Math.max(1, (stmt.loc?.line ?? 1) - lineOffset),
+                    line: Math.max(1, (stmt.loc?.line ?? 1) - lineOffset + 1),
                 });
                 seen.add(stmt.name);
             }
@@ -225,7 +240,7 @@ function collectBlockSymbols(
                                 kind: 'variable',
                                 type: v.type.name,
                                 detail: `${v.type.name} ${v.name}`,
-                                line: Math.max(1, (v.loc?.line ?? 1) - lineOffset),
+                                line: Math.max(1, (v.loc?.line ?? 1) - lineOffset + 1),
                             });
                             seen.add(v.name);
                         }
@@ -236,7 +251,7 @@ function collectBlockSymbols(
                         kind: 'variable',
                         type: stmt.init.type.name,
                         detail: `${stmt.init.type.name} ${stmt.init.name}`,
-                        line: Math.max(1, (stmt.init.loc?.line ?? 1) - lineOffset),
+                        line: Math.max(1, (stmt.init.loc?.line ?? 1) - lineOffset + 1),
                     });
                     seen.add(stmt.init.name);
                 }
