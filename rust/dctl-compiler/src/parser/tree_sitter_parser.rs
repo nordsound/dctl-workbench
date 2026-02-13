@@ -72,8 +72,12 @@ impl TreeSitterParser {
                     }
                 }
                 "type_definition" => {
-                    if let Some(decl) = self.parse_typedef(child, source)? {
-                        declarations.push(Declaration::Typedef(decl));
+                    let (typedef_decl, struct_decl) = self.parse_typedef(child, source)?;
+                    if let Some(s) = struct_decl {
+                        declarations.push(Declaration::Struct(s));
+                    }
+                    if let Some(t) = typedef_decl {
+                        declarations.push(Declaration::Typedef(t));
                     }
                 }
                 _ => {
@@ -1218,23 +1222,23 @@ impl TreeSitterParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "field_declaration" {
-                if let Some(field) = self.parse_struct_field(child, source)? {
-                    fields.push(field);
-                }
+                let parsed = self.parse_struct_field(child, source)?;
+                fields.extend(parsed);
             }
         }
 
         Ok(fields)
     }
 
-    /// Parse a single struct field
+    /// Parse a struct field declaration (may contain comma-separated declarators,
+    /// e.g. `float3 r0, r1, r2;` → three fields)
     fn parse_struct_field(
         &self,
         node: Node,
         source: &str,
-    ) -> Result<Option<StructField>, ParseError> {
+    ) -> Result<Vec<StructField>, ParseError> {
         let mut field_type = Type::default();
-        let mut name = String::new();
+        let mut names = Vec::new();
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -1243,21 +1247,20 @@ impl TreeSitterParser {
                     field_type = self.parse_type_from_node(child, source)?;
                 }
                 "field_identifier" => {
-                    name = self.get_text(child, source).to_string();
+                    names.push(self.get_text(child, source).to_string());
                 }
                 _ => {}
             }
         }
 
-        if name.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(StructField {
-            name,
-            field_type,
-            loc: self.get_location(node),
-        }))
+        Ok(names
+            .into_iter()
+            .map(|name| StructField {
+                name,
+                field_type: field_type.clone(),
+                loc: self.get_location(node),
+            })
+            .collect())
     }
 
     /// Parse a variable declaration
@@ -1446,21 +1449,47 @@ impl TreeSitterParser {
         }
     }
 
-    /// Parse a typedef declaration
+    /// Parse a typedef declaration.
+    /// For `typedef struct { ... } name;`, returns both a StructDecl and a TypedefDecl.
     fn parse_typedef(
         &self,
         node: Node,
         source: &str,
-    ) -> Result<Option<TypedefDecl>, ParseError> {
+    ) -> Result<(Option<TypedefDecl>, Option<StructDecl>), ParseError> {
         let loc = self.get_location(node);
         let mut name = String::new();
         let mut target_type = Type::default();
+        let mut struct_decl: Option<StructDecl> = None;
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {
-                "primitive_type" | "type_identifier" | "sized_type_specifier" => {
+                "primitive_type" | "sized_type_specifier" => {
                     target_type = self.parse_type_from_node(child, source)?;
+                }
+                "type_identifier" => {
+                    // For `typedef struct { ... } name;`, the type_identifier after
+                    // struct_specifier is the typedef name, not the target type.
+                    if struct_decl.is_some() {
+                        name = self.get_text(child, source).to_string();
+                    } else {
+                        target_type = self.parse_type_from_node(child, source)?;
+                    }
+                }
+                "struct_specifier" => {
+                    // Parse the inline struct definition (typedef struct { ... } name;)
+                    let mut fields = Vec::new();
+                    let mut inner_cursor = child.walk();
+                    for inner_child in child.children(&mut inner_cursor) {
+                        if inner_child.kind() == "field_declaration_list" {
+                            fields = self.parse_struct_fields(inner_child, source)?;
+                        }
+                    }
+                    struct_decl = Some(StructDecl {
+                        name: String::new(), // Will be set below once we know the typedef name
+                        fields,
+                        loc: self.get_location(child),
+                    });
                 }
                 "type_definition" => {
                     // Nested typedef
@@ -1473,14 +1502,27 @@ impl TreeSitterParser {
         }
 
         if name.is_empty() {
-            return Ok(None);
+            return Ok((None, None));
         }
 
-        Ok(Some(TypedefDecl {
-            name,
-            target_type,
-            loc,
-        }))
+        // If we have an inline struct, set its name to the typedef name
+        // and set the target type to reference that struct
+        if let Some(ref mut s) = struct_decl {
+            s.name = name.clone();
+            target_type = Type {
+                base: BaseType::Struct(name.clone()),
+                ..Type::default()
+            };
+        }
+
+        Ok((
+            Some(TypedefDecl {
+                name,
+                target_type,
+                loc,
+            }),
+            struct_decl,
+        ))
     }
 
     /// Get text for a node
