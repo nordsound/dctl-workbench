@@ -221,15 +221,22 @@ export class DctlCompiler {
 
             // Step 5: Compile via Rust backend
             const resultJson = this.module.compile_from_ast(rustAstJson);
-            const result = JSON.parse(resultJson) as CompileResult;
+            const result = JSON.parse(resultJson);
+
+            // Check if the result is an error from the Rust backend
+            if (result.error) {
+                return result as CompileError;
+            }
+
+            const compileResult = result as CompileResult;
 
             // Step 6: Merge extracted UI parameters into the result
             // Use extracted params if Rust backend didn't return any
-            if (result.parameters.length === 0 && extractedParams.length > 0) {
-                result.parameters = extractedParams as CompilerParameter[];
+            if (compileResult.parameters.length === 0 && extractedParams.length > 0) {
+                compileResult.parameters = extractedParams as CompilerParameter[];
             }
 
-            return result;
+            return compileResult;
         } catch (err) {
             return {
                 error: true,

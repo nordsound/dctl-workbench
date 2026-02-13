@@ -76,6 +76,21 @@ program
         }
     });
 
+program
+    .command('check')
+    .description('Check a DCTL file for errors (like VS Code diagnostics)')
+    .argument('<dctl>', 'Path to the DCTL file')
+    .option('--include <dirs...>', 'Additional include directories for DCTL')
+    .action(async (dctl: string, options) => {
+        try {
+            const exitCode = await checkDctl(dctl, options);
+            process.exit(exitCode);
+        } catch (err) {
+            console.error('Error:', err instanceof Error ? err.message : String(err));
+            process.exit(1);
+        }
+    });
+
 /**
  * Get the WASM path for the runtime
  */
@@ -332,6 +347,68 @@ async function showInfo(dctlPath: string): Promise<void> {
             }
         }
     }
+}
+
+/**
+ * Check DCTL file for errors (mimics VS Code diagnostics pipeline)
+ * Returns exit code: 0 = no errors, 1 = has errors
+ */
+async function checkDctl(
+    dctlPath: string,
+    options: {
+        include?: string[];
+    }
+): Promise<number> {
+    const resolvedPath = path.resolve(dctlPath);
+
+    // Initialize runtime
+    const runtime = new DctlRuntime();
+    const wasmPath = getWasmPath();
+    await runtime.init({ wasmPath });
+
+    // Read DCTL source
+    const dctlSource = fs.readFileSync(resolvedPath, 'utf-8');
+
+    // Compile DCTL with includes
+    const includeDirs = options.include || [];
+    includeDirs.unshift(path.dirname(resolvedPath));
+
+    const compileResult = await runtime.compileWithIncludes(dctlSource, {
+        includeDirs,
+        mainFilePath: resolvedPath,
+    });
+
+    let errorCount = 0;
+    let warningCount = 0;
+
+    if (isCompileError(compileResult)) {
+        console.error(`\x1b[31mERROR\x1b[0m ${compileResult.message}`);
+        errorCount++;
+    } else {
+        // Show diagnostics
+        for (const diag of compileResult.diagnostics) {
+            const isError = diag.severity === 'error';
+            if (isError) {
+                errorCount++;
+                const loc = diag.line > 0 ? `:${diag.line}:${diag.column}` : '';
+                console.error(`\x1b[31mERROR\x1b[0m${loc} ${diag.message}`);
+            } else {
+                warningCount++;
+                const loc = diag.line > 0 ? `:${diag.line}:${diag.column}` : '';
+                console.warn(`\x1b[33mWARN\x1b[0m${loc} ${diag.message}`);
+            }
+        }
+
+        // Summary
+        const wgslSize = compileResult.wgsl.length;
+        console.log(
+            `\n${path.basename(dctlPath)}: ` +
+            `${errorCount} error(s), ${warningCount} warning(s), ` +
+            `${wgslSize} bytes WGSL`
+        );
+    }
+
+    return errorCount > 0 ? 1 : 0;
 }
 
 program.parse();
