@@ -183,15 +183,17 @@ impl SemanticAnalyzer {
             .iter()
             .any(|m| matches!(m, crate::parser::Modifier::Device));
 
-        self.symbols.functions.insert(
-            func.name.clone(),
-            FunctionDef {
-                name: func.name.clone(),
-                params,
-                return_type,
-                is_device,
-            },
-        );
+        let func_def = FunctionDef {
+            name: func.name.clone(),
+            params,
+            return_type,
+            is_device,
+        };
+        self.symbols.function_overloads
+            .entry(func.name.clone())
+            .or_insert_with(Vec::new)
+            .push(func_def.clone());
+        self.symbols.functions.insert(func.name.clone(), func_def);
 
         Ok(())
     }
@@ -759,7 +761,57 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Look up user-defined function
+        // Look up user-defined function with overload resolution
+        if let Some(overloads) = self.symbols.function_overloads.get(name) {
+            if overloads.len() == 1 {
+                return Some(overloads[0].return_type.clone());
+            }
+
+            // Score each overload and find the best match
+            let mut best: Option<(&FunctionDef, i32)> = None;
+            for func_def in overloads {
+                if func_def.params.len() != arg_types.len() {
+                    continue;
+                }
+                let mut score = 0i32;
+                let mut has_mismatch = false;
+                for (i, (_, param_type)) in func_def.params.iter().enumerate() {
+                    if let Some(arg_type) = &arg_types[i] {
+                        if self.is_type_compatible(arg_type, param_type) {
+                            score += 10;
+                        } else {
+                            has_mismatch = true;
+                            break;
+                        }
+                    } else {
+                        // Unknown arg type - don't penalize
+                    }
+                }
+                if has_mismatch {
+                    continue;
+                }
+                if let Some((_, best_score)) = best {
+                    if score > best_score {
+                        best = Some((func_def, score));
+                    }
+                } else {
+                    best = Some((func_def, score));
+                }
+            }
+
+            if let Some((func_def, _)) = best {
+                return Some(func_def.return_type.clone());
+            }
+
+            // Fallback: return the first overload with matching arg count
+            for func_def in overloads {
+                if func_def.params.len() == arg_types.len() {
+                    return Some(func_def.return_type.clone());
+                }
+            }
+        }
+
+        // Fall back to single function lookup
         if let Some(func) = self.symbols.get_function(name) {
             return Some(func.return_type.clone());
         }

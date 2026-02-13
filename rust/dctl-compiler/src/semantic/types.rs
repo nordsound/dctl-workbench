@@ -212,8 +212,10 @@ pub struct SymbolTable {
     scopes: Vec<HashMap<String, Symbol>>,
     /// Struct definitions
     pub structs: HashMap<String, StructDef>,
-    /// Function definitions
+    /// Function definitions (last registered overload for each name)
     pub functions: HashMap<String, FunctionDef>,
+    /// All function overloads (for overload resolution)
+    pub function_overloads: HashMap<String, Vec<FunctionDef>>,
     /// Typedef aliases
     pub typedefs: HashMap<String, DctlType>,
 }
@@ -224,6 +226,7 @@ impl SymbolTable {
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
             functions: HashMap::new(),
+            function_overloads: HashMap::new(),
             typedefs: HashMap::new(),
         };
         table.register_builtins();

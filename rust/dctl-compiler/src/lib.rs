@@ -975,4 +975,247 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         let result = compile(source);
         assert!(result.is_ok(), "Compile failed: {:?}", result.err());
     }
+
+    /// Test function overload resolution with multiple return types
+    /// When a function has overloads returning different types (e.g. float3 and void),
+    /// the compiler should resolve to the correct overload based on argument types.
+    /// Reproduces: DCTL010 "Assignment type mismatch: 'float3' = 'void'" for multi(float3, mat3)
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_function_overload_resolution_with_void_variant() {
+        let source = r#"
+// User-defined mat3 struct (as defined in DCTL_Functions.h)
+// This shadows the builtin mat3 type
+typedef struct {
+    float3 r0;
+    float3 r1;
+    float3 r2;
+} mat3;
+
+__DEVICE__ inline mat3 make_mat3_rows(float3 A, float3 B, float3 C)
+{
+    mat3 D;
+    D.r0 = A;
+    D.r1 = B;
+    D.r2 = C;
+    return D;
+}
+
+// Overloaded: multi(float3, mat3) -> float3
+__DEVICE__ inline float3 multi(float3 A, mat3 B)
+{
+    return make_float3(A.x, A.y, A.z);
+}
+
+// Overloaded: multi(mat3, float3) -> float3
+__DEVICE__ inline float3 multi(mat3 B, float3 A)
+{
+    return make_float3(A.x, A.y, A.z);
+}
+
+// Overloaded: multi(float*, float*, int) -> void
+__DEVICE__ inline void multi(float* A, float* B, int n)
+{
+    A[0] = B[0];
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float3 color = make_float3(p_R, p_G, p_B);
+    mat3 m = make_mat3_rows(
+        make_float3(1.0f, 0.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f),
+        make_float3(0.0f, 0.0f, 1.0f)
+    );
+    float3 result = multi(color, m);
+    return result;
+}
+"#;
+        let result = compile(source);
+        // Compilation should succeed (no hard failure)
+        assert!(result.is_ok(), "Compile should not hard-fail for typedef struct mat3: {:?}", result.err());
+        let compile_result = result.unwrap();
+        // And there should be no type mismatch errors
+        let errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "Should have no errors for multi(float3, mat3) overload, got: {:?}",
+            errors
+        );
+    }
+
+    /// Test that typedef struct with chained member access (B.r0.x) works correctly.
+    /// This matches the actual DCTL_Functions.h pattern where multi() accesses
+    /// struct member's vector components.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_typedef_struct_chained_member_access() {
+        let source = r#"
+typedef struct {
+    float3 r0;
+    float3 r1;
+    float3 r2;
+} mat3;
+
+__DEVICE__ inline float3 multi(float3 A, mat3 B)
+{
+    float3 C;
+    C.x = A.x * B.r0.x + A.y * B.r0.y + A.z * B.r0.z;
+    C.y = A.x * B.r1.x + A.y * B.r1.y + A.z * B.r1.z;
+    C.z = A.x * B.r2.x + A.y * B.r2.y + A.z * B.r2.z;
+    return C;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float3 color = make_float3(p_R, p_G, p_B);
+    mat3 m;
+    m.r0 = make_float3(1.0f, 0.0f, 0.0f);
+    m.r1 = make_float3(0.0f, 1.0f, 0.0f);
+    m.r2 = make_float3(0.0f, 0.0f, 1.0f);
+    float3 result = multi(color, m);
+    return result;
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+        let errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "Should have no errors for chained member access B.r0.x, got: {:?}",
+            errors
+        );
+    }
+
+    /// Test compile_with_includes using a realistic DCTL_Functions.h header
+    /// that defines mat2/mat3/mat4 typedefs and multi() overloads.
+    /// This reproduces the actual Choc_OFX.dctl error: DCTL010 "Assignment type mismatch: 'float3' = 'void'"
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_compile_with_includes_typedef_struct_overloads() {
+        let header = r#"
+typedef struct { float2 r0, r1; } mat2;
+typedef struct { float3 r0, r1, r2; } mat3;
+typedef struct { float4 r0, r1, r2, r3; } mat4;
+
+__DEVICE__ inline mat2 make_mat2(float A1, float A2, float B1, float B2) {
+    mat2 C; C.r0 = make_float2(A1, A2); C.r1 = make_float2(B1, B2); return C;
+}
+
+__DEVICE__ inline mat3 make_mat3(float3 A, float3 B, float3 C) {
+    mat3 D; D.r0 = A; D.r1 = B; D.r2 = C; return D;
+}
+
+__DEVICE__ inline mat3 make_mat3(float m00, float m01, float m02,
+    float m10, float m11, float m12, float m20, float m21, float m22) {
+    mat3 M;
+    M.r0 = make_float3(m00, m01, m02);
+    M.r1 = make_float3(m10, m11, m12);
+    M.r2 = make_float3(m20, m21, m22);
+    return M;
+}
+
+__DEVICE__ inline float2 multi(float2 A, mat2 B) {
+    float2 C;
+    C.x = A.x * B.r0.x + A.y * B.r0.y;
+    C.y = A.x * B.r1.x + A.y * B.r1.y;
+    return C;
+}
+
+__DEVICE__ inline mat3 multi(mat3 A, float B) {
+    return make_mat3(A.r0 * B, A.r1 * B, A.r2 * B);
+}
+
+__DEVICE__ inline mat3 multi(float B, mat3 A) {
+    return make_mat3(A.r0 * B, A.r1 * B, A.r2 * B);
+}
+
+__DEVICE__ inline float3 multi(float3 A, mat3 B) {
+    float3 C;
+    C.x = A.x * B.r0.x + A.y * B.r0.y + A.z * B.r0.z;
+    C.y = A.x * B.r1.x + A.y * B.r1.y + A.z * B.r1.z;
+    C.z = A.x * B.r2.x + A.y * B.r2.y + A.z * B.r2.z;
+    return C;
+}
+
+__DEVICE__ inline float3 multi(mat3 B, float3 A) {
+    float3 C;
+    C.x = A.x * B.r0.x + A.y * B.r0.y + A.z * B.r0.z;
+    C.y = A.x * B.r1.x + A.y * B.r1.y + A.z * B.r1.z;
+    C.z = A.x * B.r2.x + A.y * B.r2.y + A.z * B.r2.z;
+    return C;
+}
+
+__DEVICE__ inline mat3 multi(mat3 A, mat3 B) {
+    mat3 R = make_mat3(
+        make_float3(A.r0.x * B.r0.x + A.r0.y * B.r1.x + A.r0.z * B.r2.x,
+                     A.r0.x * B.r0.y + A.r0.y * B.r1.y + A.r0.z * B.r2.y,
+                     A.r0.x * B.r0.z + A.r0.y * B.r1.z + A.r0.z * B.r2.z),
+        make_float3(A.r1.x * B.r0.x + A.r1.y * B.r1.x + A.r1.z * B.r2.x,
+                     A.r1.x * B.r0.y + A.r1.y * B.r1.y + A.r1.z * B.r2.y,
+                     A.r1.x * B.r0.z + A.r1.y * B.r1.z + A.r1.z * B.r2.z),
+        make_float3(A.r2.x * B.r0.x + A.r2.y * B.r1.x + A.r2.z * B.r2.x,
+                     A.r2.x * B.r0.y + A.r2.y * B.r1.y + A.r2.z * B.r2.y,
+                     A.r2.x * B.r0.z + A.r2.y * B.r1.z + A.r2.z * B.r2.z));
+    return R;
+}
+
+__DEVICE__ inline void multi(float* A, float* B, mat2 C) {
+    float a = *A;
+    float b = *B;
+    float2 AB = multi(make_float2(a, b), C);
+    *A = AB.x;
+    *B = AB.y;
+}
+
+__DEVICE__ inline mat3 cam3D(float rotateX, float rotateY, float rotateZ) {
+    mat3 rot_x = make_mat3(1.0f, 0.0f, 0.0f, 0.0f, _cosf(rotateX), _sinf(rotateX), 0.0f, -_sinf(rotateX), _cosf(rotateX));
+    mat3 rot_y = make_mat3(_cosf(rotateY), 0.0f, _sinf(rotateY), 0.0f, 1.0f, 0.0f, -_sinf(rotateY), 0.0f, _cosf(rotateY));
+    mat3 rot_z = make_mat3(_cosf(rotateZ), _sinf(rotateZ), 0.0f, -_sinf(rotateZ), _cosf(rotateZ), 0.0f, 0.0f, 0.0f, 1.0f);
+    mat3 Cam = multi(multi(rot_y, rot_x), rot_z);
+    return Cam;
+}
+"#;
+
+        let source = r#"
+#include "DCTL_Functions.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float3 ro = make_float3(p_R, p_G, p_B);
+    mat3 cam = cam3D(0.0f, 0.0f, 0.0f);
+    ro = multi(ro, cam);
+    return ro;
+}
+"#;
+        let mut includes = std::collections::HashMap::new();
+        includes.insert("DCTL_Functions.h".to_string(), header.to_string());
+
+        let result = compile_with_includes(source, &includes);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        // Print all diagnostics for debugging
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        // Check no type mismatch errors/warnings (the original bug: DCTL010)
+        let type_mismatches: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| d.message.contains("type mismatch") || d.message.contains("Type mismatch"))
+            .collect();
+        assert!(
+            type_mismatches.is_empty(),
+            "Should have no type mismatch diagnostics for multi() overload calls, got: {:?}",
+            type_mismatches
+        );
+
+        // Pointer dereference errors (*A, *B) are expected - a known limitation.
+        // But the transform function's call to multi(float3, mat3) should work.
+    }
 }
