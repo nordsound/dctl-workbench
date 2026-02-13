@@ -256,6 +256,27 @@ impl TreeSitterParser {
                 "identifier" => {
                     name = self.get_text(child, source).to_string();
                 }
+                "array_declarator" => {
+                    // Handle `char a[]` or `char a[N]` parameter syntax
+                    // In C, array parameters decay to pointers
+                    let mut arr_cursor = child.walk();
+                    for arr_child in child.children(&mut arr_cursor) {
+                        match arr_child.kind() {
+                            "identifier" => {
+                                name = self.get_text(arr_child, source).to_string();
+                            }
+                            "number_literal" => {
+                                if let Ok(size) = self.get_text(arr_child, source).parse::<usize>() {
+                                    param_type.array_dims.push(ArrayDim::Fixed(size));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if param_type.array_dims.is_empty() {
+                        param_type.array_dims.push(ArrayDim::Unspecified);
+                    }
+                }
                 "pointer_declarator" => {
                     is_pointer = true;
                     param_type.is_pointer = true;
@@ -711,7 +732,7 @@ impl TreeSitterParser {
             "subscript_expression" => self.parse_subscript_expression(node, source),
             "assignment_expression" => self.parse_assignment_expression(node, source),
             "update_expression" => self.parse_update_expression(node, source),
-            "parenthesized_expression" => {
+            "parenthesized_expression" | "condition_clause" => {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind() != "(" && child.kind() != ")" {
@@ -1348,6 +1369,26 @@ impl TreeSitterParser {
                 }
                 "identifier" => {
                     name = self.get_text(child, source).to_string();
+                }
+                "array_declarator" => {
+                    // Handle `type name[N];` without initializer
+                    let mut arr_cursor = child.walk();
+                    for arr_child in child.children(&mut arr_cursor) {
+                        match arr_child.kind() {
+                            "identifier" => {
+                                name = self.get_text(arr_child, source).to_string();
+                            }
+                            "number_literal" => {
+                                if let Ok(size) = self.get_text(arr_child, source).parse::<usize>() {
+                                    var_type.array_dims.push(ArrayDim::Fixed(size));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if var_type.array_dims.is_empty() {
+                        var_type.array_dims.push(ArrayDim::Unspecified);
+                    }
                 }
                 _ => {}
             }

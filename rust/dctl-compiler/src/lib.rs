@@ -1269,4 +1269,63 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             "WGSL output should not be empty\nWGSL:\n{}", compile_result.wgsl
         );
     }
+
+    /// Test that array parameter comparison (pointer equality in C) compiles.
+    /// In C, `char a[]` parameters are pointers; `a != b` is pointer comparison.
+    /// WGSL doesn't support array comparison, so this must be handled specially.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_array_parameter_comparison() {
+        let source = r#"
+__DEVICE__ void strcat(char a[], char b[], char dest[]) {
+    if (a != dest) {
+        dest[0] = a[0];
+    }
+    dest[1] = b[0];
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    char buf[256];
+    char hello[] = "Hi";
+    strcat(hello, hello, buf);
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        // Should have no validation errors about array comparison
+        let validation_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .filter(|d| d.message.contains("IncompatibleOperands") || d.message.contains("NotEqual"))
+            .collect();
+        assert!(
+            validation_errors.is_empty(),
+            "Should have no array comparison validation errors, got: {:?}",
+            validation_errors
+        );
+
+        // No errors at all
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+
+        eprintln!("WGSL:\n{}", compile_result.wgsl);
+    }
 }

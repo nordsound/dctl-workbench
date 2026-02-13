@@ -331,16 +331,31 @@ impl NagaModuleGenerator {
                 )))
             }
             Expression::Binary(bin) => {
+                // Infer types early for array comparison detection
+                let left_type = self.infer_expression_type(&bin.left, ctx);
+                let right_type = self.infer_expression_type(&bin.right, ctx);
+
+                // Handle array/pointer comparison: in C, `char a[]` params are pointers,
+                // `a != b` is pointer comparison. WGSL doesn't support array comparison.
+                // Replace with `true` for != and `false` for == (conservative: assume different).
+                if matches!(bin.op, BinaryOp::Ne | BinaryOp::Eq) {
+                    let either_is_array = matches!(&left_type, Some(DctlType::Array(..)))
+                        || matches!(&right_type, Some(DctlType::Array(..)));
+                    if either_is_array {
+                        let value = matches!(bin.op, BinaryOp::Ne);
+                        return Ok(ctx.expressions.append(
+                            NagaExpr::Literal(Literal::Bool(value)),
+                            Span::UNDEFINED,
+                        ));
+                    }
+                }
+
                 let left = self.generate_expression(&bin.left, ctx)?;
                 let right = self.generate_expression(&bin.right, ctx)?;
 
                 // Save original expressions before any coercions for bool-to-float conversion
                 let original_left = left;
                 let original_right = right;
-
-                // Infer types for automatic coercion
-                let left_type = self.infer_expression_type(&bin.left, ctx);
-                let right_type = self.infer_expression_type(&bin.right, ctx);
 
                 // Coerce int to float if needed for arithmetic/comparison operations
                 let (left, right) =
