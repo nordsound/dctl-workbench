@@ -1218,4 +1218,55 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         // Pointer dereference errors (*A, *B) are expected - a known limitation.
         // But the transform function's call to multi(float3, mat3) should work.
     }
+
+    /// Test that char arrays initialized with string literals compile successfully.
+    /// DCTL shaders use `char str[] = "hello"` for font rendering.
+    /// String literals should be converted to arrays of i32 (ASCII values).
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_string_literal_to_char_array() {
+        let source = r#"
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    char label[] = "RGB";
+    int len = 3;
+    float sum = 0.0f;
+    for (int i = 0; i < len; i++) {
+        sum = sum + (float)label[i];
+    }
+    return make_float3(sum, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail for string literals: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let string_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| d.message.contains("String literal") || d.message.contains("string literal"))
+            .collect();
+        assert!(
+            string_errors.is_empty(),
+            "Should have no string literal errors, got: {:?}",
+            string_errors
+        );
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors at all, got: {:?}",
+            all_errors
+        );
+
+        // WGSL should be generated (codegen not skipped)
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty\nWGSL:\n{}", compile_result.wgsl
+        );
+    }
 }

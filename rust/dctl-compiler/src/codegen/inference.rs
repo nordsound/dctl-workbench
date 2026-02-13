@@ -121,7 +121,7 @@ impl NagaModuleGenerator {
                 LiteralValue::Float(_) => DctlType::Float,
                 LiteralValue::Bool(_) => DctlType::Bool,
                 LiteralValue::Char(_) => DctlType::Char,
-                LiteralValue::String(_) => return None,
+                LiteralValue::String(s) => DctlType::Array(Box::new(DctlType::Char), Some(s.len() + 1)),
             }),
             Expression::Identifier(ident) => {
                 // First check local/parameter variable types
