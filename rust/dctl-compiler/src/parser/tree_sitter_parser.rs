@@ -1313,6 +1313,31 @@ impl TreeSitterParser {
                                 // Before "=", this is the variable name
                                 name = self.get_text(inner_child, source).to_string();
                             }
+                            "array_declarator" if !seen_equals => {
+                                // Handle `type name[] = init` or `type name[N] = init`
+                                let mut arr_cursor = inner_child.walk();
+                                for arr_child in inner_child.children(&mut arr_cursor) {
+                                    match arr_child.kind() {
+                                        "identifier" => {
+                                            name = self.get_text(arr_child, source).to_string();
+                                        }
+                                        "number_literal" => {
+                                            // Explicit array size: name[N]
+                                            if let Ok(size) = self.get_text(arr_child, source).parse::<usize>() {
+                                                var_type.array_dims.push(ArrayDim::Fixed(size));
+                                            }
+                                        }
+                                        "[" | "]" => {
+                                            // If no size was pushed yet after seeing `[`, it's unsized
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                // If no explicit size was found, mark as unsized array
+                                if var_type.array_dims.is_empty() {
+                                    var_type.array_dims.push(ArrayDim::Unspecified);
+                                }
+                            }
                             _ if seen_equals => {
                                 // After "=", this is the initializer expression
                                 initializer = Some(self.parse_expression(inner_child, source)?);

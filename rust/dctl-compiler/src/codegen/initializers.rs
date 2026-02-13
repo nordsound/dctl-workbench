@@ -57,6 +57,19 @@ impl NagaModuleGenerator {
             }
         }
 
+        // Handle string literal initializer for char/int arrays: char label[] = "RGB"
+        // Convert string to array<i32, len+1> with null terminator
+        if let DctlType::Array(ref elem_type, ref mut size_opt) = var_type {
+            if matches!(elem_type.as_ref(), DctlType::Char | DctlType::Int) {
+                if let Some(Expression::Literal(lit)) = &var_decl.initializer {
+                    if let crate::parser::LiteralValue::String(s) = &lit.value {
+                        // Size = string length + 1 for null terminator
+                        *size_opt = Some(s.len() + 1);
+                    }
+                }
+            }
+        }
+
         let type_handle = self.get_or_create_type(&var_type);
 
         // Track variable type for overload resolution
@@ -138,8 +151,43 @@ impl NagaModuleGenerator {
 
         // Generate initializer if present
         if let Some(init_expr) = &var_decl.initializer {
-            // For InitializerList, use the typed version to properly handle arrays/matrices
-            let init_value = if matches!(init_expr, Expression::InitializerList(_)) {
+            // For string literals on char/int arrays, compose array of i32 values
+            let init_value = if let Expression::Literal(lit) = init_expr {
+                if let crate::parser::LiteralValue::String(s) = &lit.value {
+                    if let DctlType::Array(_, _) = &var_type {
+                        // Convert string bytes to i32 literals + null terminator
+                        let mut components = Vec::with_capacity(s.len() + 1);
+                        for byte in s.bytes() {
+                            components.push(ctx.expressions.append(
+                                NagaExpr::Literal(Literal::I32(byte as i32)),
+                                Span::UNDEFINED,
+                            ));
+                        }
+                        // Null terminator
+                        components.push(ctx.expressions.append(
+                            NagaExpr::Literal(Literal::I32(0)),
+                            Span::UNDEFINED,
+                        ));
+                        let compose = ctx.expressions.append(
+                            NagaExpr::Compose {
+                                ty: type_handle,
+                                components,
+                            },
+                            Span::UNDEFINED,
+                        );
+                        block.push(
+                            NagaStmt::Emit(naga::Range::new_from_bounds(compose, compose)),
+                            Span::UNDEFINED,
+                        );
+                        compose
+                    } else {
+                        self.emit_expression(init_expr, ctx, block)?
+                    }
+                } else {
+                    self.emit_expression(init_expr, ctx, block)?
+                }
+            } else if matches!(init_expr, Expression::InitializerList(_)) {
+                // For InitializerList, use the typed version to properly handle arrays/matrices
                 self.generate_initializer_with_type(init_expr, &var_type, ctx, block)?
             } else {
                 self.emit_expression(init_expr, ctx, block)?

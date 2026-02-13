@@ -208,9 +208,41 @@ impl NagaModuleGenerator {
                     LiteralValue::Float(v) => Literal::F32(*v as f32),
                     LiteralValue::Bool(v) => Literal::Bool(*v),
                     LiteralValue::Char(c) => Literal::I32(*c as i32),
-                    LiteralValue::String(_) => {
-                        return Err(CodegenError::UnsupportedFeature(
-                            "String literals not supported in WGSL".to_string(),
+                    LiteralValue::String(s) => {
+                        // Convert string literal to array<i32, len+1> compose
+                        let array_size = s.len() + 1;
+                        let elem_type_handle =
+                            self.get_or_create_type(&crate::semantic::DctlType::Int);
+                        let array_type = self.module.types.insert(
+                            naga::Type {
+                                name: None,
+                                inner: naga::TypeInner::Array {
+                                    base: elem_type_handle,
+                                    size: naga::ArraySize::Constant(
+                                        std::num::NonZeroU32::new(array_size as u32).unwrap(),
+                                    ),
+                                    stride: 4,
+                                },
+                            },
+                            Span::UNDEFINED,
+                        );
+                        let mut components = Vec::with_capacity(array_size);
+                        for byte in s.bytes() {
+                            components.push(ctx.expressions.append(
+                                NagaExpr::Literal(Literal::I32(byte as i32)),
+                                Span::UNDEFINED,
+                            ));
+                        }
+                        components.push(ctx.expressions.append(
+                            NagaExpr::Literal(Literal::I32(0)),
+                            Span::UNDEFINED,
+                        ));
+                        return Ok(ctx.expressions.append(
+                            NagaExpr::Compose {
+                                ty: array_type,
+                                components,
+                            },
+                            Span::UNDEFINED,
                         ));
                     }
                 };
