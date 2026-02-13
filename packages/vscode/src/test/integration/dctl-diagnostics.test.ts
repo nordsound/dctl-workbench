@@ -13,6 +13,9 @@ import * as os from 'os';
 
 /**
  * Helper: write a temp .dctl file, open it, wait for diagnostics, return them.
+ *
+ * Uses waitForStableDiagnostics to ensure the full diagnostic pipeline
+ * (parser → semantic analysis → Naga validation) has completed.
  */
 async function getDiagnosticsForSource(source: string): Promise<vscode.Diagnostic[]> {
     // Write temp file with .dctl extension
@@ -32,8 +35,12 @@ async function getDiagnosticsForSource(source: string): Promise<vscode.Diagnosti
 
     await vscode.window.showTextDocument(doc);
 
-    // Wait for diagnostics to be computed (debounce + processing)
-    const diagnostics = await waitForDiagnostics(uri, 10000);
+    // Wait for diagnostics to stabilize (no changes for 2s, max 15s)
+    // This ensures the full diagnostic pipeline has completed:
+    // - Parser (sync, fast)
+    // - Semantic analysis (sync, fast)
+    // - Naga validation (async, may take 1-2s)
+    const diagnostics = await waitForStableDiagnostics(uri, 2000, 15000);
 
     // Clean up
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
@@ -44,32 +51,81 @@ async function getDiagnosticsForSource(source: string): Promise<vscode.Diagnosti
 
 /**
  * Wait for diagnostics to appear on a URI, with timeout.
+ *
+ * Registers the onDidChangeDiagnostics listener BEFORE checking existing
+ * diagnostics to avoid a race condition where diagnostics are set between
+ * the check and the listener registration.
  */
 function waitForDiagnostics(uri: vscode.Uri, timeoutMs: number): Promise<vscode.Diagnostic[]> {
     return new Promise((resolve) => {
-        // Check if diagnostics are already available
-        const existing = vscode.languages.getDiagnostics(uri);
-        if (existing.length > 0) {
-            resolve(existing);
-            return;
-        }
+        let resolved = false;
+        const done = (diags: vscode.Diagnostic[]) => {
+            if (resolved) return;
+            resolved = true;
+            disposable.dispose();
+            clearTimeout(timer);
+            resolve(diags);
+        };
 
+        // Step 1: Register listener FIRST (before checking existing)
         const disposable = vscode.languages.onDidChangeDiagnostics((e) => {
             if (e.uris.some(u => u.toString() === uri.toString())) {
                 const diags = vscode.languages.getDiagnostics(uri);
                 if (diags.length > 0) {
-                    disposable.dispose();
-                    clearTimeout(timer);
-                    resolve(diags);
+                    done(diags);
                 }
             }
         });
 
         const timer = setTimeout(() => {
-            disposable.dispose();
-            // Return whatever is available (may be empty)
-            resolve(vscode.languages.getDiagnostics(uri));
+            done(vscode.languages.getDiagnostics(uri));
         }, timeoutMs);
+
+        // Step 2: Check existing diagnostics AFTER listener is registered
+        const existing = vscode.languages.getDiagnostics(uri);
+        if (existing.length > 0) {
+            done(existing);
+        }
+    });
+}
+
+/**
+ * Wait for diagnostics to stabilize (no changes for stabilizeMs).
+ * Use this for tests that need to wait for the full diagnostic pipeline.
+ */
+function waitForStableDiagnostics(uri: vscode.Uri, stabilizeMs: number, timeoutMs: number): Promise<vscode.Diagnostic[]> {
+    return new Promise((resolve) => {
+        let resolved = false;
+        let stabilizeTimer: NodeJS.Timeout | null = null;
+
+        const done = (diags: vscode.Diagnostic[]) => {
+            if (resolved) return;
+            resolved = true;
+            disposable.dispose();
+            clearTimeout(overallTimer);
+            if (stabilizeTimer) clearTimeout(stabilizeTimer);
+            resolve(diags);
+        };
+
+        const resetStabilize = () => {
+            if (stabilizeTimer) clearTimeout(stabilizeTimer);
+            stabilizeTimer = setTimeout(() => {
+                done(vscode.languages.getDiagnostics(uri));
+            }, stabilizeMs);
+        };
+
+        const disposable = vscode.languages.onDidChangeDiagnostics((e) => {
+            if (e.uris.some(u => u.toString() === uri.toString())) {
+                resetStabilize();
+            }
+        });
+
+        const overallTimer = setTimeout(() => {
+            done(vscode.languages.getDiagnostics(uri));
+        }, timeoutMs);
+
+        // Start stabilization timer immediately
+        resetStabilize();
     });
 }
 
@@ -387,5 +443,281 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         // Filter for syntax errors only (DCTL011)
         const syntaxErrors = diagnostics.filter(d => d.code === 'DCTL011');
         assert.strictEqual(syntaxErrors.length, 0, `Valid DCTL should have no syntax errors, got: ${syntaxErrors.map(d => d.message).join(', ')}`);
+    });
+});
+
+suite('DCTL Semantic Warning Tests', () => {
+
+    test('unused variable should produce SEM_W002 warning', async function () {
+        this.timeout(30000);
+
+        const source =
+`__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float unused = 1.0f;
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message} (${d.severity})`);
+        }
+
+        // Should have SEM_W002 warning for unused variable
+        const semWarnings = diagnostics.filter(d => d.code === 'SEM_W002');
+        assert.ok(
+            semWarnings.length > 0,
+            `Should report SEM_W002 for unused variable 'unused'. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        const unusedWarning = semWarnings.find(d => d.message.includes('unused'));
+        assert.ok(unusedWarning, 'SEM_W002 should mention the variable name');
+
+        // Should be a Warning severity (not Error)
+        assert.strictEqual(
+            unusedWarning!.severity,
+            vscode.DiagnosticSeverity.Warning,
+            'SEM_W002 should be Warning severity'
+        );
+
+        // Should be on line 3 (0-indexed: 2) where "float unused = 1.0f;" is
+        assert.strictEqual(
+            unusedWarning!.range.start.line,
+            2,
+            `SEM_W002 should be on line 3 (0-indexed: 2), got line ${unusedWarning!.range.start.line + 1}`
+        );
+    });
+
+    test('unused function should produce SEM_W003 warning', async function () {
+        this.timeout(30000);
+
+        const source =
+`__DEVICE__ float helper(float x) {
+    return x * 2.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message} (${d.severity})`);
+        }
+
+        // Should have SEM_W003 warning for unused function
+        const semWarnings = diagnostics.filter(d => d.code === 'SEM_W003');
+        assert.ok(
+            semWarnings.length > 0,
+            `Should report SEM_W003 for unused function 'helper'. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        const helperWarning = semWarnings.find(d => d.message.includes('helper'));
+        assert.ok(helperWarning, 'SEM_W003 should mention the function name');
+
+        // Should be a Warning severity
+        assert.strictEqual(
+            helperWarning!.severity,
+            vscode.DiagnosticSeverity.Warning,
+            'SEM_W003 should be Warning severity'
+        );
+
+        // Should be on line 1 (0-indexed: 0) where "float helper(...)" is
+        assert.strictEqual(
+            helperWarning!.range.start.line,
+            0,
+            `SEM_W003 should be on line 1 (0-indexed: 0), got line ${helperWarning!.range.start.line + 1}`
+        );
+    });
+
+    test('entry point parameters should not produce unused warnings', async function () {
+        this.timeout(30000);
+
+        // p_Width, p_Height, p_X, p_Y are not used but should NOT trigger SEM_W002
+        const source =
+`__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have SEM_W002 for any p_ prefixed parameters
+        const paramWarnings = diagnostics.filter(d =>
+            d.code === 'SEM_W002' && (
+                d.message.includes('p_Width') ||
+                d.message.includes('p_Height') ||
+                d.message.includes('p_X') ||
+                d.message.includes('p_Y')
+            )
+        );
+        assert.strictEqual(
+            paramWarnings.length,
+            0,
+            `Entry point parameters (p_Width, p_Height, etc.) should not trigger SEM_W002. ` +
+            `Got: ${paramWarnings.map(d => d.message).join('; ')}`
+        );
+    });
+
+    test('entry point function should not produce unused warning', async function () {
+        this.timeout(30000);
+
+        const source =
+`__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have SEM_W003 for transform
+        const transformWarning = diagnostics.find(d =>
+            d.code === 'SEM_W003' && d.message.includes('transform')
+        );
+        assert.strictEqual(
+            transformWarning,
+            undefined,
+            `Entry point 'transform' should not trigger SEM_W003`
+        );
+    });
+
+    test('semantic warning line numbers should be correct with DEFINE_UI_PARAMS', async function () {
+        this.timeout(30000);
+
+        // Line 1: DEFINE_UI_PARAMS(gain, ...)
+        // Line 2: (empty)
+        // Line 3: __DEVICE__ float3 transform(...) {
+        // Line 4:     float unused = 1.0f;        <-- SEM_W002 expected here
+        // Line 5:     return make_float3(...);
+        // Line 6: }
+        const source =
+`DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float unused = 1.0f;
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        const unusedWarning = diagnostics.find(d =>
+            d.code === 'SEM_W002' && d.message.includes('unused')
+        );
+        assert.ok(unusedWarning, 'Should have SEM_W002 for unused variable');
+
+        // Should be on line 5 (0-indexed: 4), NOT shifted by preprocessor header
+        const warningLine = unusedWarning!.range.start.line + 1; // 1-based
+        assert.strictEqual(
+            warningLine,
+            5,
+            `SEM_W002 for 'unused' should be on line 5, but was on line ${warningLine}. ` +
+            `Line number may be shifted by preprocessor header offset.`
+        );
+    });
+
+    test('used helper function should not produce SEM_W003', async function () {
+        this.timeout(30000);
+
+        const source =
+`__DEVICE__ float helper(float x) {
+    return x * 2.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float r = helper(p_R);
+    return make_float3(r, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // helper IS used, so should NOT have SEM_W003 for it
+        const helperWarning = diagnostics.find(d =>
+            d.code === 'SEM_W003' && d.message.includes('helper')
+        );
+        assert.strictEqual(
+            helperWarning,
+            undefined,
+            `Used function 'helper' should not trigger SEM_W003`
+        );
+    });
+
+    test('all diagnostic line numbers should be within file range', async function () {
+        this.timeout(30000);
+
+        // DCTL with DEFINE_UI_PARAMS + unused variable + unused function
+        // All diagnostics (errors and warnings) must have line numbers within the file
+        const source =
+`DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(offset, Offset, DCTLUI_SLIDER_FLOAT, 0.0, -1.0, 1.0, 0.01)
+
+__DEVICE__ float unused_helper(float x) {
+    return x * 2.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float unused_var = 1.0f;
+    return make_float3(p_R * gain + offset, p_G, p_B);
+}`;
+        const totalLines = source.split('\n').length;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics (file has ${totalLines} lines):`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // ALL diagnostic line numbers must be within the file range
+        for (const d of diagnostics) {
+            const line1Based = d.range.start.line + 1;
+            assert.ok(
+                line1Based >= 1 && line1Based <= totalLines,
+                `Diagnostic [${d.code}] line ${line1Based} is outside file range 1-${totalLines}: ${d.message}`
+            );
+        }
+
+        // Should have warnings (SEM_W002 for unused_var, SEM_W003 for unused_helper)
+        const semWarnings = diagnostics.filter(d =>
+            d.code === 'SEM_W002' || d.code === 'SEM_W003'
+        );
+        assert.ok(
+            semWarnings.length >= 2,
+            `Should have at least 2 semantic warnings (unused var + unused function). ` +
+            `Got ${semWarnings.length}: ${semWarnings.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        // Should NOT have syntax errors
+        const syntaxErrors = diagnostics.filter(d => d.code === 'DCTL011');
+        assert.strictEqual(syntaxErrors.length, 0, 'Valid DCTL should have no syntax errors');
     });
 });

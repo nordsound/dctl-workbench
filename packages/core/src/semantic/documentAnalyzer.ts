@@ -93,9 +93,11 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
         // Filter warnings from preprocessor header and map line numbers to original source.
         // headerLineCount is DCTL_TYPE_DEFINITIONS.split('\n').length (e.g. 82), but the actual
         // number of header lines is headerLineCount - 1 (e.g. 81) because the trailing '\n'
-        // adds an extra empty entry in the split. So: originalLine = preprocessedLine - (headerLineCount - 1)
+        // adds an extra empty entry in the split.
+        // User code starts at preprocessed line == headerLineCount (e.g. line 82).
+        // So: keep warnings where line >= lineOffset, and map: originalLine = line - lineOffset + 1
         const warnings = analysisResult.warnings
-            .filter(w => w.line > lineOffset)
+            .filter(w => w.line >= lineOffset)
             .map(w => ({
                 ...w,
                 line: w.line - lineOffset + 1,
@@ -130,7 +132,7 @@ function extractUserSymbols(
 
     // Global scope variables (includes UI params and global vars)
     for (const sym of symbolTable.getGlobalScope().getAllSymbols()) {
-        if (sym.loc.line <= lineOffset) continue;
+        if (sym.loc.line < lineOffset) continue;
 
         symbols.push({
             name: sym.name,
@@ -144,7 +146,7 @@ function extractUserSymbols(
 
     // User-defined functions + their parameters and local variables
     for (const fn of symbolTable.getAllFunctions()) {
-        if (fn.isBuiltin || fn.loc.line <= lineOffset) continue;
+        if (fn.isBuiltin || fn.loc.line < lineOffset) continue;
 
         const paramList = fn.parameters
             .map(p => `${p.type.name} ${p.name}`)
@@ -165,7 +167,7 @@ function extractUserSymbols(
     for (const decl of ast.declarations) {
         if (decl.kind !== 'Function') continue;
         const fn = decl as FunctionNode;
-        if (fn.loc && fn.loc.line <= lineOffset) continue;
+        if (fn.loc && fn.loc.line < lineOffset) continue;
 
         // Parameters
         for (const param of fn.parameters) {
@@ -188,7 +190,7 @@ function extractUserSymbols(
 
     // Struct definitions (skip header-defined types like float2/3/4)
     for (const struct of symbolTable.getAllStructs()) {
-        if (struct.loc.line <= lineOffset) continue;
+        if (struct.loc.line < lineOffset) continue;
 
         symbols.push({
             name: struct.name,
@@ -279,7 +281,7 @@ function collectVariableTypes(
 
     // Global scope symbols (UI params, global vars from semantic analysis)
     for (const sym of symbolTable.getGlobalScope().getAllSymbols()) {
-        if (sym.loc.line <= lineOffset) continue;
+        if (sym.loc.line < lineOffset) continue;
         types.set(sym.name, sym.type.name);
     }
 
@@ -288,7 +290,7 @@ function collectVariableTypes(
         if (decl.kind === 'Function') {
             const fn = decl as FunctionNode;
             // Skip header-generated functions
-            if (fn.loc && fn.loc.line <= lineOffset) continue;
+            if (fn.loc && fn.loc.line < lineOffset) continue;
 
             // Function parameters
             for (const param of fn.parameters) {
@@ -301,7 +303,7 @@ function collectVariableTypes(
             }
         } else if (decl.kind === 'VariableDeclaration') {
             // Global variable declarations
-            if (decl.loc && decl.loc.line <= lineOffset) continue;
+            if (decl.loc && decl.loc.line < lineOffset) continue;
             types.set(decl.name, decl.type.name);
         }
     }
