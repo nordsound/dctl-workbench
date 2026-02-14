@@ -1328,4 +1328,204 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
 
         eprintln!("WGSL:\n{}", compile_result.wgsl);
     }
+
+    /// Test that bool-to-numeric promotion works in arithmetic.
+    /// In C, comparison results (bool) are implicitly int (0 or 1) and can be
+    /// used in arithmetic: `x *= (a > 0)`. WGSL requires explicit conversion.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_bool_arithmetic_promotion() {
+        let source = r#"
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    int n = 5;
+    float x = p_R;
+
+    // Bool used in multiplication: x *= (n > 0)
+    x *= n > 0;
+
+    // Bool used in addition: x += (n == 5)
+    x += n == 5;
+
+    // Bool used in int arithmetic: int y = n * (n > 0)
+    int y = n * (n > 0);
+
+    return make_float3(x, (float)y, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for bool arithmetic promotion, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
+
+    /// Test that struct pointer parameters work correctly.
+    /// In C/DCTL, `void foo(MyStruct* ptr)` takes a pointer to a struct,
+    /// and callers pass `&local_var`. WGSL uses `ptr<function, MyStruct>`.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_struct_pointer_parameter() {
+        let source = r#"
+typedef struct {
+    float x;
+    float y;
+    float scale;
+} char_trans_t;
+
+__DEVICE__ void modify_trans(char_trans_t* trans) {
+    trans->x = trans->x + 1.0f;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    char_trans_t t = {};
+    t.x = 0.0f;
+    t.y = 0.0f;
+    t.scale = 1.0f;
+    modify_trans(&t);
+    return make_float3(t.x, t.y, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for struct pointer params, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
+
+    /// Test struct pointer parameter passthrough: outer function receives struct pointer,
+    /// copies the struct to a local variable, and passes &local_copy to inner function.
+    /// This matches the Color Picker.dctl pattern: draw_string → draw_char.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_struct_pointer_passthrough() {
+        let source = r#"
+typedef struct { float x, y, scale; } char_trans_t;
+typedef struct { float x, y; } curr_pos_t;
+
+__DEVICE__ void inner_func(char c, float3 color, __PRIVATE__ char_trans_t* t, __PRIVATE__ curr_pos_t* pos, __PRIVATE__ float3* out_color) {
+    if (t->x <= pos->x) {
+        *out_color = color;
+    }
+}
+
+__DEVICE__ void outer_func(char str[], float3 color, __PRIVATE__ char_trans_t* trans, __PRIVATE__ curr_pos_t* pos, __PRIVATE__ float3* out_color) {
+    char_trans_t local_trans = *trans;
+    inner_func('a', color, &local_trans, pos, out_color);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    char_trans_t t = {};
+    t.x = 0.0f;
+    t.y = 0.0f;
+    t.scale = 1.0f;
+    curr_pos_t p = {};
+    p.x = 0.5f;
+    p.y = 0.5f;
+    float3 c = make_float3(0.0f, 0.0f, 0.0f);
+    char str[] = "hello";
+    outer_func(str, make_float3(1.0f, 1.0f, 1.0f), &t, &p, &c);
+    return c;
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for struct pointer passthrough, got: {:?}",
+            all_errors
+        );
+    }
+
+    /// Test passing pointer to global variable to function expecting ptr<function, T>.
+    /// In WGSL, global variables are in 'private' address space while function params
+    /// use 'function' address space. The codegen must copy global→local before the call
+    /// and copy local→global after.
+    /// This matches Color Picker.dctl: convert_float4_to_format(..., &num_digits)
+    /// where num_digits is a global variable from DEFINE_UI_PARAMS.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_global_pointer_address_space_coercion() {
+        let source = r#"
+int g_value = 3;
+
+__DEVICE__ void modify_via_ptr(__PRIVATE__ int* ptr) {
+    *ptr = *ptr + 10;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    modify_via_ptr(&g_value);
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(
+            result.is_ok(),
+            "Compile should not hard-fail: {:?}",
+            result.err()
+        );
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let all_errors: Vec<_> = compile_result
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for global pointer address space coercion, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
 }
