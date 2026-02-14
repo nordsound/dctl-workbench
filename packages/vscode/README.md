@@ -26,7 +26,7 @@ Built-in custom editor for OpenEXR files with DCTL integration:
 
 - **DCTL Live Preview** — Apply DCTL shaders to EXR images in real time
 - **Auto Preview** — Automatically updates the preview when you edit a DCTL file
-- **ACES Color Pipeline** — Working color spaces: ACES2065-1, ACEScg, Linear sRGB, Linear Rec.2020
+- **ACES Color Pipeline** — Working color spaces: ACES2065-1, ACEScg, ACEScc, ACEScct, Linear sRGB
 - **Reference Gamut Compression** — ACES 2.0 RGC with configurable peak luminance
 - **GPU Accelerated** — WebGPU rendering with WebGL2 and CPU fallbacks
 - **EXR Export** — Export processed images with configurable compression (ZIP, PIZ, RLE, ZIPS, NONE)
@@ -56,16 +56,21 @@ Type `dctl` in a `.dctl` file to see all available snippets.
 
 ## Configuration
 
+**EXR Viewer** (`dctlWorkbench.exr_viewer.*`)
+
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `dctlWorkbench.dctl.autoPreview` | `true` | Auto-update preview on DCTL changes |
-| `dctlWorkbench.dctl.previewDebounceMs` | `300` | Debounce time for auto-preview (ms) |
-| `dctlWorkbench.colorSpace.working` | `ACES2065-1` | Working color space |
-| `dctlWorkbench.colorSpace.display` | `sRGB` | Display color space |
-| `dctlWorkbench.preview.renderer` | `auto` | Renderer: auto, webgpu, webgl2, or cpu |
-| `dctlWorkbench.export.exrCompression` | `ZIP` | EXR export compression method |
-| `dctlWorkbench.diagnostics.enabled` | `true` | Enable DCTL syntax checking |
-| `dctlWorkbench.resolve.dctlDirectory` | *(empty)* | Custom path to Resolve DCTL directory |
+| `defaultWorkingColorSpace` | `ACEScct` | Default working color space (can be changed per viewer) |
+| `defaultExportCompression` | `PIZ` | Default EXR export compression method |
+
+**Editor** (`dctlWorkbench.editor.*`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `diagnostics` | `true` | Enable DCTL syntax checking and diagnostics |
+| `diagnosticsDebounceMs` | `500` | Debounce time for diagnostics update (ms) |
+| `nagaValidation` | `true` | Enable Naga (WGSL) validation in addition to syntax checking |
+| `resolveDctlDirectory` | *(empty)* | Path to DaVinci Resolve DCTL directory |
 
 ## Commands
 

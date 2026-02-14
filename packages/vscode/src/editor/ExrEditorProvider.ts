@@ -13,6 +13,7 @@ import { initOCIO, OCIOProcessor, setWasmDirectory, DctlRuntime } from '@dctl-wo
 import { buildWgslShader, buildIntegratedShader, buildDctlExportShader } from '../shader';
 import { preprocessDctlSource } from '../dctl/preprocessor';
 import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
+import { parseCompressionSetting, parseWorkingColorSpace } from './settings-helpers';
 
 // DCTL state for each webview
 interface DctlState {
@@ -471,7 +472,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         let exrData: Uint8Array;
         try {
             exrData = writer.write(pixelData.pixels, pixelData.width, pixelData.height, 3, {
-                compression: Compression.PIZ,
+                compression: parseCompressionSetting(
+                    vscode.workspace.getConfiguration('dctlWorkbench').get('exr_viewer.defaultExportCompression', 'PIZ')
+                ),
                 pixelType: PixelType.HALF,
                 chromaticities: ACES_CHROMATICITIES,
                 adoptedNeutral: true,
@@ -545,7 +548,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         return {
             filePath: null,
             enabled: false,
-            workingColorSpace: 'ACEScct',
+            workingColorSpace: parseWorkingColorSpace(
+                vscode.workspace.getConfiguration('dctlWorkbench').get('exr_viewer.defaultWorkingColorSpace', 'ACEScct')
+            ),
             params: [],
             paramValues: {},
             fileWatcher: null,

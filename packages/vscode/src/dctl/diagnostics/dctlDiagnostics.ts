@@ -26,9 +26,9 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
 
     constructor(extensionPath?: string) {
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection('dctl');
-        this.debounceMs = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.debounceMs', 500);
-        this.enabled = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.enabled', true);
-        this.nagaValidationEnabled = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.nagaValidation', true);
+        this.debounceMs = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.diagnosticsDebounceMs', 500);
+        this.enabled = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.diagnostics', true);
+        this.nagaValidationEnabled = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.nagaValidation', true);
         this.validator = getDctlValidator();
 
         // Use provided extension path or try to find it
@@ -103,10 +103,10 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
     }
 
     private onConfigChange(event: vscode.ConfigurationChangeEvent): void {
-        if (event.affectsConfiguration('dctlWorkbench.diagnostics')) {
-            this.enabled = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.enabled', true);
-            this.debounceMs = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.debounceMs', 500);
-            this.nagaValidationEnabled = vscode.workspace.getConfiguration('dctlWorkbench').get('diagnostics.nagaValidation', true);
+        if (event.affectsConfiguration('dctlWorkbench.editor')) {
+            this.enabled = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.diagnostics', true);
+            this.debounceMs = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.diagnosticsDebounceMs', 500);
+            this.nagaValidationEnabled = vscode.workspace.getConfiguration('dctlWorkbench').get('editor.nagaValidation', true);
 
             if (!this.enabled) {
                 this.diagnosticCollection.clear();

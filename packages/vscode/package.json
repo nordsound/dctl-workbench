@@ -83,75 +83,86 @@
         "icon": "$(folder-opened)"
       }
     ],
-    "configuration": {
-      "title": "DCTL Workbench",
-      "properties": {
-        "dctlWorkbench.dctl.autoPreview": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically update preview when DCTL file changes"
-        },
-        "dctlWorkbench.dctl.previewDebounceMs": {
-          "type": "number",
-          "default": 300,
-          "description": "Debounce time for auto preview (ms)"
-        },
-        "dctlWorkbench.colorSpace.working": {
-          "type": "string",
-          "default": "ACES2065-1",
-          "enum": [
-            "ACES2065-1",
-            "ACEScg",
-            "Linear sRGB",
-            "Linear Rec.2020"
-          ],
-          "description": "Working color space"
-        },
-        "dctlWorkbench.colorSpace.display": {
-          "type": "string",
-          "default": "sRGB",
-          "enum": [
-            "sRGB",
-            "Display P3",
-            "Rec.709"
-          ],
-          "description": "Display color space"
-        },
-        "dctlWorkbench.preview.renderer": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "webgpu",
-            "webgl2",
-            "cpu"
-          ],
-          "description": "Renderer for preview"
-        },
-        "dctlWorkbench.export.exrCompression": {
-          "type": "string",
-          "default": "ZIP",
-          "enum": [
-            "NONE",
-            "RLE",
-            "ZIPS",
-            "ZIP",
-            "PIZ"
-          ],
-          "description": "EXR compression method"
-        },
-        "dctlWorkbench.diagnostics.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable DCTL syntax checking and diagnostics"
-        },
-        "dctlWorkbench.resolve.dctlDirectory": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Path to DaVinci Resolve DCTL directory. Leave empty to use the OS default:\n- **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DCTL/`\n- **Windows**: `C:\\ProgramData\\Blackmagic Design\\DaVinci Resolve\\Support\\LUT\\DCTL\\`\n- **Linux**: `/opt/resolve/LUT/DCTL/`"
+    "configuration": [
+      {
+        "title": "EXR Viewer",
+        "properties": {
+          "dctlWorkbench.exr_viewer.defaultWorkingColorSpace": {
+            "type": "string",
+            "default": "ACEScct",
+            "enum": [
+              "ACES2065-1",
+              "ACEScg",
+              "ACEScc",
+              "ACEScct",
+              "linear_sRGB"
+            ],
+            "enumItemLabels": [
+              "ACES2065-1 (AP0)",
+              "ACEScg (AP1)",
+              "ACEScc (Log)",
+              "ACEScct (Log)",
+              "Linear sRGB"
+            ],
+            "description": "Default working color space when opening EXR files (can be changed per viewer)"
+          },
+          "dctlWorkbench.exr_viewer.defaultExportCompression": {
+            "type": "string",
+            "default": "PIZ",
+            "enum": [
+              "NONE",
+              "RLE",
+              "ZIPS",
+              "ZIP",
+              "PIZ",
+              "PXR24",
+              "B44",
+              "B44A",
+              "DWAA",
+              "DWAB"
+            ],
+            "enumItemLabels": [
+              "NONE (uncompressed)",
+              "RLE (lossless)",
+              "ZIPS (lossless, single scanline)",
+              "ZIP (lossless, 16 scanlines)",
+              "PIZ (lossless, wavelet)",
+              "PXR24 (lossy, 24-bit)",
+              "B44 (lossy, fixed rate)",
+              "B44A (lossy, fixed rate + flat optimization)",
+              "DWAA (lossy, small blocks)",
+              "DWAB (lossy, large blocks)"
+            ],
+            "description": "Default EXR export compression method"
+          }
+        }
+      },
+      {
+        "title": "Editor",
+        "properties": {
+          "dctlWorkbench.editor.diagnostics": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable DCTL syntax checking and diagnostics"
+          },
+          "dctlWorkbench.editor.diagnosticsDebounceMs": {
+            "type": "number",
+            "default": 500,
+            "description": "Debounce time for diagnostics update (ms)"
+          },
+          "dctlWorkbench.editor.nagaValidation": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Naga (WGSL) validation in addition to syntax checking"
+          },
+          "dctlWorkbench.editor.resolveDctlDirectory": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Path to DaVinci Resolve DCTL directory. Leave empty to use the OS default:\n- **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DCTL/`\n- **Windows**: `C:\\\\ProgramData\\\\Blackmagic Design\\\\DaVinci Resolve\\\\Support\\\\LUT\\\\DCTL\\\\`\n- **Linux**: `/opt/resolve/LUT/DCTL/`"
+          }
         }
       }
-    },
+    ],
     "menus": {
       "editor/title": [
         {
