@@ -136,6 +136,8 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
      */
     private async checkDocumentAsync(document: vscode.TextDocument): Promise<void> {
         const diagnostics: vscode.Diagnostic[] = [];
+        // Diagnostics for included files, keyed by file path
+        const includedFileDiagnostics = new Map<string, vscode.Diagnostic[]>();
         const source = document.getText();
         const filePath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
 
@@ -176,8 +178,8 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 }
 
                 // Map line back to original file if we have a source map
-                if (preprocessorSourceMap && preprocessorSourceMap.getOriginalLocation) {
-                    const original = preprocessorSourceMap.getOriginalLocation(adjustedLine);
+                if (preprocessorSourceMap && preprocessorSourceMap.getOriginalPosition) {
+                    const original = preprocessorSourceMap.getOriginalPosition(adjustedLine);
                     if (original) {
                         mappedLine = original.line;
                         mappedFile = original.file;
@@ -186,11 +188,6 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                     }
                 } else {
                     mappedLine = adjustedLine;
-                }
-
-                // Only show errors from the main file (not included files)
-                if (mappedFile && filePath && mappedFile !== filePath) {
-                    continue;
                 }
 
                 const range = new vscode.Range(
@@ -205,7 +202,15 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 );
                 diagnostic.code = 'DCTL011';
                 diagnostic.source = 'DCTL';
-                diagnostics.push(diagnostic);
+
+                // Route diagnostics to the correct file
+                if (mappedFile && filePath && mappedFile !== filePath) {
+                    const arr = includedFileDiagnostics.get(mappedFile) || [];
+                    arr.push(diagnostic);
+                    includedFileDiagnostics.set(mappedFile, arr);
+                } else {
+                    diagnostics.push(diagnostic);
+                }
             }
 
             // Track parse errors (syntax errors from native parser)
@@ -233,7 +238,7 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 // Run Naga semantic validation only if no syntax errors and no duplicate entry points
                 // (Naga would report similar errors, causing duplicates)
                 if (!hasSyntaxErrors && !hasDuplicateEntryPoints && this.nagaValidationEnabled && this.validator.isInitialized) {
-                    await this.checkNagaValidationAsync(source, filePath, diagnostics);
+                    await this.checkNagaValidationAsync(source, filePath, diagnostics, includedFileDiagnostics);
                 }
 
                 // Semantic warnings (unused variables, unused functions)
@@ -261,6 +266,11 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
         }
 
         this.diagnosticCollection.set(document.uri, diagnostics);
+
+        // Set diagnostics for included files
+        for (const [file, diags] of includedFileDiagnostics) {
+            this.diagnosticCollection.set(vscode.Uri.file(file), diags);
+        }
     }
 
     /**
@@ -529,7 +539,7 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
      * Run Rust compiler validation on DCTL code
      * Uses the Rust compiler's built-in validation
      */
-    private async checkNagaValidationAsync(source: string, filePath: string | undefined, diagnostics: vscode.Diagnostic[]): Promise<void> {
+    private async checkNagaValidationAsync(source: string, filePath: string | undefined, diagnostics: vscode.Diagnostic[], includedFileDiagnostics?: Map<string, vscode.Diagnostic[]>): Promise<void> {
         try {
             console.log('[DCTL] Running Rust compiler validation...');
 
@@ -557,11 +567,6 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
 
             // Add errors (line numbers already adjusted by validator)
             for (const error of result.errors) {
-                // Skip errors from included files - they should be shown when that file is opened
-                if (error.file && filePath && error.file !== filePath) {
-                    continue;
-                }
-
                 const range = new vscode.Range(
                     Math.max(0, error.line - 1), Math.max(0, (error.column ?? 1) - 1),
                     Math.max(0, error.line - 1), Math.max(0, (error.column ?? 1) - 1) + 20
@@ -574,16 +579,20 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 );
                 diagnostic.code = 'DCTL010';
                 diagnostic.source = 'DCTL (Compiler)';
-                diagnostics.push(diagnostic);
+
+                if (error.file && filePath && error.file !== filePath) {
+                    if (includedFileDiagnostics) {
+                        const arr = includedFileDiagnostics.get(error.file) || [];
+                        arr.push(diagnostic);
+                        includedFileDiagnostics.set(error.file, arr);
+                    }
+                } else {
+                    diagnostics.push(diagnostic);
+                }
             }
 
             // Add warnings (line numbers already adjusted by validator)
             for (const warning of result.warnings) {
-                // Skip warnings from included files - they should be shown when that file is opened
-                if (warning.file && filePath && warning.file !== filePath) {
-                    continue;
-                }
-
                 const range = new vscode.Range(
                     Math.max(0, warning.line - 1), Math.max(0, (warning.column ?? 1) - 1),
                     Math.max(0, warning.line - 1), Math.max(0, (warning.column ?? 1) - 1) + 20
@@ -596,7 +605,16 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 );
                 diagnostic.code = 'DCTL010';
                 diagnostic.source = 'DCTL (Compiler)';
-                diagnostics.push(diagnostic);
+
+                if (warning.file && filePath && warning.file !== filePath) {
+                    if (includedFileDiagnostics) {
+                        const arr = includedFileDiagnostics.get(warning.file) || [];
+                        arr.push(diagnostic);
+                        includedFileDiagnostics.set(warning.file, arr);
+                    }
+                } else {
+                    diagnostics.push(diagnostic);
+                }
             }
 
             console.log('[DCTL] Compiler validation complete:', result.success ? 'success' : `${result.errors.length} errors`);
