@@ -721,3 +721,122 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         assert.strictEqual(syntaxErrors.length, 0, 'Valid DCTL should have no syntax errors');
     });
 });
+
+suite('DCTL Include File Diagnostics Tests', () => {
+
+    test('syntax error in included header should be reported on header file URI', async function () {
+        this.timeout(30000);
+
+        // Create temp directory with main.dctl and header.h
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctl-include-test-'));
+        const headerFile = path.join(tmpDir, 'helpers.h');
+        const mainFile = path.join(tmpDir, 'main.dctl');
+
+        // Header has a syntax error: missing semicolon on the return statement
+        fs.writeFileSync(headerFile, `__DEVICE__ float helper(float x) {
+    return x * 2.0f
+}
+`, 'utf-8');
+
+        // Main file includes the header and uses the helper
+        fs.writeFileSync(mainFile, `#include "helpers.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float r = helper(p_R);
+    return make_float3(r, p_G, p_B);
+}
+`, 'utf-8');
+
+        const mainUri = vscode.Uri.file(mainFile);
+        const headerUri = vscode.Uri.file(headerFile);
+
+        const doc = await vscode.workspace.openTextDocument(mainUri);
+        if (doc.languageId !== 'dctl') {
+            await vscode.languages.setTextDocumentLanguage(doc, 'dctl');
+        }
+        await vscode.window.showTextDocument(doc);
+
+        // Wait for diagnostics to stabilize
+        await waitForStableDiagnostics(mainUri, 2000, 15000);
+
+        // Check diagnostics on the HEADER file URI
+        const headerDiags = vscode.languages.getDiagnostics(headerUri);
+
+        console.log(`Header diagnostics (${headerDiags.length}):`);
+        for (const d of headerDiags) {
+            console.log(`  line ${d.range.start.line + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // The header file should have at least one diagnostic (syntax error)
+        assert.ok(
+            headerDiags.length > 0,
+            `Syntax error in included header should be reported on header file URI. ` +
+            `Got 0 diagnostics for ${headerFile}`
+        );
+
+        // Clean up
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        try {
+            fs.unlinkSync(mainFile);
+            fs.unlinkSync(headerFile);
+            fs.rmdirSync(tmpDir);
+        } catch { /* ignore */ }
+    });
+
+    test('valid included header should produce no diagnostics on header URI', async function () {
+        this.timeout(30000);
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctl-include-test-'));
+        const headerFile = path.join(tmpDir, 'helpers.h');
+        const mainFile = path.join(tmpDir, 'main.dctl');
+
+        // Valid header — no errors
+        fs.writeFileSync(headerFile, `__DEVICE__ float helper(float x) {
+    return x * 2.0f;
+}
+`, 'utf-8');
+
+        fs.writeFileSync(mainFile, `#include "helpers.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float r = helper(p_R);
+    return make_float3(r, p_G, p_B);
+}
+`, 'utf-8');
+
+        const mainUri = vscode.Uri.file(mainFile);
+        const headerUri = vscode.Uri.file(headerFile);
+
+        const doc = await vscode.workspace.openTextDocument(mainUri);
+        if (doc.languageId !== 'dctl') {
+            await vscode.languages.setTextDocumentLanguage(doc, 'dctl');
+        }
+        await vscode.window.showTextDocument(doc);
+
+        await waitForStableDiagnostics(mainUri, 2000, 15000);
+
+        const headerDiags = vscode.languages.getDiagnostics(headerUri);
+
+        console.log(`Header diagnostics (${headerDiags.length}):`);
+        for (const d of headerDiags) {
+            console.log(`  line ${d.range.start.line + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Valid header should have no syntax errors
+        const syntaxErrors = headerDiags.filter(d => d.code === 'DCTL011');
+        assert.strictEqual(
+            syntaxErrors.length, 0,
+            `Valid header should have no syntax errors. Got: ${syntaxErrors.map(d => d.message).join(', ')}`
+        );
+
+        // Clean up
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        try {
+            fs.unlinkSync(mainFile);
+            fs.unlinkSync(headerFile);
+            fs.rmdirSync(tmpDir);
+        } catch { /* ignore */ }
+    });
+});
