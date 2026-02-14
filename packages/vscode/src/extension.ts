@@ -211,8 +211,8 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
             const fileName = path.basename(srcPath);
 
             // Get configured directory or use OS default
-            const config = vscode.workspace.getConfiguration('dctlWorkbench.resolve');
-            let destDir = config.get<string>('dctlDirectory', '');
+            const config = vscode.workspace.getConfiguration('dctlWorkbench.editor');
+            let destDir = config.get<string>('resolveDctlDirectory', '');
 
             if (!destDir) {
                 switch (process.platform) {
@@ -255,7 +255,7 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
                         return;
                     }
                     destDir = chosen[0].fsPath;
-                    await config.update('dctlDirectory', destDir, vscode.ConfigurationTarget.Global);
+                    await config.update('resolveDctlDirectory', destDir, vscode.ConfigurationTarget.Global);
                 } else {
                     return;
                 }
