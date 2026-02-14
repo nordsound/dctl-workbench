@@ -1279,17 +1279,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             if (integratedShader.success) {
                 writeLog(`Shader rebuild SUCCESS: WGSL length=${integratedShader.wgslCode.length}, useUniformBuffer=${integratedShader.useUniformBuffer}`);
 
-                // Debug: Save generated WGSL to file for inspection
-                if (integratedShader.dctlComputeShaderInfo?.success && integratedShader.dctlComputeShaderInfo?.computeWgsl) {
-                    const outputPath = path.join(this.context.extensionPath, 'docs', 'reports', 'dctl_compute_shader.wgsl');
-                    try {
-                        fs.writeFileSync(outputPath, integratedShader.dctlComputeShaderInfo.computeWgsl, 'utf-8');
-                        writeLog(`[Debug] Saved generated compute shader to: ${outputPath}`);
-                    } catch (err) {
-                        writeLog(`[Debug] Failed to save compute shader: ${err}`);
-                    }
-                }
-
                 // Log DCTL compute shader info
                 const dctlInfo = integratedShader.dctlComputeShaderInfo;
                 if (dctlInfo) {

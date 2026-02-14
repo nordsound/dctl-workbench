@@ -29,6 +29,9 @@ test/fixtures/*.exr
 # VS Code extension package
 *.vsix
 
+# Debug output
+packages/vscode/docs/reports/*.wgsl
+
 # IDE
 .idea/
 
