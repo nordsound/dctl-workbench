@@ -23,6 +23,46 @@ impl NagaModuleGenerator {
         }
     }
 
+    /// Promote a bool expression to a numeric type using select(0, 1, cond).
+    /// In C, comparison results are implicitly int (0 or 1) and can be used in
+    /// arithmetic: `x *= (a > 0)`. WGSL requires explicit conversion.
+    /// Returns the original expression if it's not bool or the target is bool.
+    pub(super) fn coerce_bool_to_numeric(
+        &mut self,
+        expr: Handle<NagaExpr>,
+        expr_type: &Option<DctlType>,
+        target_type: &Option<DctlType>,
+        ctx: &mut FunctionContext,
+    ) -> Handle<NagaExpr> {
+        if !matches!(expr_type, Some(DctlType::Bool)) {
+            return expr;
+        }
+        // Don't convert if target is also bool
+        if matches!(target_type, Some(DctlType::Bool)) {
+            return expr;
+        }
+
+        let target_is_int = matches!(target_type, Some(DctlType::Int) | Some(DctlType::UInt));
+
+        if target_is_int {
+            // select(0i, 1i, condition)
+            let zero = ctx.expressions.append(NagaExpr::Literal(Literal::I32(0)), Span::UNDEFINED);
+            let one = ctx.expressions.append(NagaExpr::Literal(Literal::I32(1)), Span::UNDEFINED);
+            ctx.expressions.append(
+                NagaExpr::Select { condition: expr, accept: one, reject: zero },
+                Span::UNDEFINED,
+            )
+        } else {
+            // Default: select(0.0f, 1.0f, condition)
+            let zero = ctx.expressions.append(NagaExpr::Literal(Literal::F32(0.0)), Span::UNDEFINED);
+            let one = ctx.expressions.append(NagaExpr::Literal(Literal::F32(1.0)), Span::UNDEFINED);
+            ctx.expressions.append(
+                NagaExpr::Select { condition: expr, accept: one, reject: zero },
+                Span::UNDEFINED,
+            )
+        }
+    }
+
     /// Coerce a value to the target type if needed
     /// - Scalar int → scalar float
     /// - Scalar float → scalar int
@@ -353,10 +393,6 @@ impl NagaModuleGenerator {
                 let left = self.generate_expression(&bin.left, ctx)?;
                 let right = self.generate_expression(&bin.right, ctx)?;
 
-                // Save original expressions before any coercions for bool-to-float conversion
-                let original_left = left;
-                let original_right = right;
-
                 // Coerce int to float if needed for arithmetic/comparison operations
                 let (left, right) =
                     self.coerce_binary_operands(left, right, left_type.clone(), right_type.clone(), ctx);
@@ -409,75 +445,12 @@ impl NagaModuleGenerator {
                     (left, right)
                 };
 
-                // For arithmetic operators, coerce bool operands to float
-                // DCTL allows: (x > 0.04045) * _powf(...) where bool is used as 0/1
-                // Check if the original expression is a comparison (which produces Bool in Naga)
-                let left_naga_is_comparison = matches!(
-                    &ctx.expressions[original_left],
-                    NagaExpr::Binary { op, .. } if matches!(op,
-                        BinaryOperator::Equal | BinaryOperator::NotEqual |
-                        BinaryOperator::Less | BinaryOperator::LessEqual |
-                        BinaryOperator::Greater | BinaryOperator::GreaterEqual
-                    )
-                );
-                let right_naga_is_comparison = matches!(
-                    &ctx.expressions[original_right],
-                    NagaExpr::Binary { op, .. } if matches!(op,
-                        BinaryOperator::Equal | BinaryOperator::NotEqual |
-                        BinaryOperator::Less | BinaryOperator::LessEqual |
-                        BinaryOperator::Greater | BinaryOperator::GreaterEqual
-                    )
-                );
-
+                // For arithmetic operators, promote bool operands to numeric type.
+                // In C, comparison results (bool) are implicitly int (0/1) and can be
+                // used in arithmetic: `(x > 0.04045) * _powf(...)`. WGSL requires explicit conversion.
                 let (left, right) = if matches!(bin.op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod) {
-                    let left_is_bool = matches!(&left_type, Some(DctlType::Bool));
-                    let right_is_bool = matches!(&right_type, Some(DctlType::Bool));
-
-                    let new_left = if left_is_bool && left_naga_is_comparison {
-                        // Use the original expression as the bool condition
-                        // Convert bool to float using select(0.0, 1.0, condition)
-                        let zero_f = ctx.expressions.append(
-                            NagaExpr::Literal(Literal::F32(0.0)),
-                            Span::UNDEFINED,
-                        );
-                        let one_f = ctx.expressions.append(
-                            NagaExpr::Literal(Literal::F32(1.0)),
-                            Span::UNDEFINED,
-                        );
-                        ctx.expressions.append(
-                            NagaExpr::Select {
-                                condition: original_left,
-                                accept: one_f,
-                                reject: zero_f,
-                            },
-                            Span::UNDEFINED,
-                        )
-                    } else {
-                        left
-                    };
-
-                    let new_right = if right_is_bool && right_naga_is_comparison {
-                        // Use the original expression as the bool condition
-                        let zero_f = ctx.expressions.append(
-                            NagaExpr::Literal(Literal::F32(0.0)),
-                            Span::UNDEFINED,
-                        );
-                        let one_f = ctx.expressions.append(
-                            NagaExpr::Literal(Literal::F32(1.0)),
-                            Span::UNDEFINED,
-                        );
-                        ctx.expressions.append(
-                            NagaExpr::Select {
-                                condition: original_right,
-                                accept: one_f,
-                                reject: zero_f,
-                            },
-                            Span::UNDEFINED,
-                        )
-                    } else {
-                        right
-                    };
-
+                    let new_left = self.coerce_bool_to_numeric(left, &left_type, &right_type, ctx);
+                    let new_right = self.coerce_bool_to_numeric(right, &right_type, &left_type, ctx);
                     (new_left, new_right)
                 } else {
                     (left, right)

@@ -201,7 +201,7 @@ impl NagaModuleGenerator {
                             let coerced_right = self.coerce_for_binary_op(
                                 coerced_left,
                                 coerced_right_int,
-                                left_type,
+                                left_type.clone(),
                                 right_type.clone(), // Use original right_type, not updated
                                 ctx,
                             );
@@ -210,6 +210,12 @@ impl NagaModuleGenerator {
                             for (stmt, span) in ctx.pending_stmts.drain(..) {
                                 block.push(stmt, span);
                             }
+
+                            // Promote bool to numeric for arithmetic compound assignments
+                            // (e.g., `x *= (n > 0)` where comparison result is bool)
+                            let coerced_right = self.coerce_bool_to_numeric(
+                                coerced_right, &right_type, &left_type, ctx,
+                            );
 
                             let result = ctx.expressions.append(
                                 NagaExpr::Binary {

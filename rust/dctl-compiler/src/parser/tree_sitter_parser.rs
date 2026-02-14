@@ -727,7 +727,7 @@ impl TreeSitterParser {
             })),
             "call_expression" => self.parse_call_expression(node, source),
             "binary_expression" => self.parse_binary_expression(node, source),
-            "unary_expression" => self.parse_unary_expression(node, source),
+            "unary_expression" | "pointer_expression" => self.parse_unary_expression(node, source),
             "field_expression" => self.parse_field_expression(node, source),
             "subscript_expression" => self.parse_subscript_expression(node, source),
             "assignment_expression" => self.parse_assignment_expression(node, source),

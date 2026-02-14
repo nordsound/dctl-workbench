@@ -345,6 +345,11 @@ impl NagaModuleGenerator {
         }
 
         // Coerce arguments to match parameter types
+        // Track global→local copies for scalar pointer args (need post-call copy-back)
+        let mut global_scalar_copies: Vec<(
+            Handle<naga::GlobalVariable>,
+            Handle<naga::LocalVariable>,
+        )> = Vec::new();
         let mut coerced_args = Vec::with_capacity(array_expanded_args.len());
         for (i, &arg_handle) in array_expanded_args.iter().enumerate() {
             if i < param_types.len() {
@@ -603,7 +608,7 @@ impl NagaModuleGenerator {
                             base: _elem_ty,
                             size,
                             ..
-                        } = global_type
+                        } = &global_type
                         {
                             // Create a local variable (uninitialized)
                             let local_name = format!("_global_copy_{}", ctx.local_vars.len());
@@ -669,6 +674,56 @@ impl NagaModuleGenerator {
                             }
 
                             // Pass pointer to local variable as the argument
+                            coerced_args.push(local_ptr);
+                            continue;
+                        } else {
+                            // Scalar global: copy value to a local variable, pass &local
+                            // WGSL doesn't allow ptr<private, T> where ptr<function, T> is expected
+                            let local_name = format!("_global_copy_{}", ctx.local_vars.len());
+                            let local = LocalVariable {
+                                name: Some(local_name.clone().into()),
+                                ty: global_ty,
+                                init: None,
+                            };
+                            let local_handle = ctx.local_variables.append(local, Span::UNDEFINED);
+                            ctx.local_vars.insert(local_name.clone(), local_handle);
+
+                            // Load value from global
+                            let global_ptr = ctx.expressions.append(
+                                NagaExpr::GlobalVariable(global_handle),
+                                Span::UNDEFINED,
+                            );
+                            let global_value = ctx.expressions.append(
+                                NagaExpr::Load {
+                                    pointer: global_ptr,
+                                },
+                                Span::UNDEFINED,
+                            );
+                            ctx.pending_stmts.push((
+                                NagaStmt::Emit(naga::Range::new_from_bounds(
+                                    global_value,
+                                    global_value,
+                                )),
+                                Span::UNDEFINED,
+                            ));
+
+                            // Store to local
+                            let local_ptr = ctx.expressions.append(
+                                NagaExpr::LocalVariable(local_handle),
+                                Span::UNDEFINED,
+                            );
+                            ctx.pending_stmts.push((
+                                NagaStmt::Store {
+                                    pointer: local_ptr,
+                                    value: global_value,
+                                },
+                                Span::UNDEFINED,
+                            ));
+
+                            // Track for post-call copy-back
+                            global_scalar_copies.push((global_handle, local_handle));
+
+                            // Pass pointer to local variable
                             coerced_args.push(local_ptr);
                             continue;
                         }
@@ -941,6 +996,36 @@ impl NagaModuleGenerator {
                 Span::UNDEFINED,
             ));
 
+            // Copy back scalar globals that were passed by pointer
+            // The callee may have modified them through the pointer
+            for &(global_handle, local_handle) in &global_scalar_copies {
+                let local_ptr = ctx.expressions.append(
+                    NagaExpr::LocalVariable(local_handle),
+                    Span::UNDEFINED,
+                );
+                let local_value = ctx.expressions.append(
+                    NagaExpr::Load {
+                        pointer: local_ptr,
+                    },
+                    Span::UNDEFINED,
+                );
+                ctx.pending_stmts.push((
+                    NagaStmt::Emit(naga::Range::new_from_bounds(local_value, local_value)),
+                    Span::UNDEFINED,
+                ));
+                let global_ptr = ctx.expressions.append(
+                    NagaExpr::GlobalVariable(global_handle),
+                    Span::UNDEFINED,
+                );
+                ctx.pending_stmts.push((
+                    NagaStmt::Store {
+                        pointer: global_ptr,
+                        value: local_value,
+                    },
+                    Span::UNDEFINED,
+                ));
+            }
+
             // For pointer-returning functions converted to void,
             // create a fresh expression that references the same underlying variable
             // (can't reuse the argument expression since it's already been used in the call)
@@ -996,6 +1081,35 @@ impl NagaModuleGenerator {
             },
             Span::UNDEFINED,
         ));
+
+        // Copy back scalar globals that were passed by pointer
+        for &(global_handle, local_handle) in &global_scalar_copies {
+            let local_ptr = ctx.expressions.append(
+                NagaExpr::LocalVariable(local_handle),
+                Span::UNDEFINED,
+            );
+            let local_value = ctx.expressions.append(
+                NagaExpr::Load {
+                    pointer: local_ptr,
+                },
+                Span::UNDEFINED,
+            );
+            ctx.pending_stmts.push((
+                NagaStmt::Emit(naga::Range::new_from_bounds(local_value, local_value)),
+                Span::UNDEFINED,
+            ));
+            let global_ptr = ctx.expressions.append(
+                NagaExpr::GlobalVariable(global_handle),
+                Span::UNDEFINED,
+            );
+            ctx.pending_stmts.push((
+                NagaStmt::Store {
+                    pointer: global_ptr,
+                    value: local_value,
+                },
+                Span::UNDEFINED,
+            ));
+        }
 
         Ok(call_result)
     }
