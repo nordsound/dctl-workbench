@@ -4,6 +4,8 @@ All notable changes to the DCTL Workbench project will be documented in this fil
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-02-12
+
 ### Added
 - CLI `check` command for validating DCTL files from the command line (#10)
 - Bool arithmetic promotion: C-style `x *= (a > 0)` now compiles to WGSL via `select()` (#11)
