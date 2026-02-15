@@ -19,7 +19,10 @@ import {
     extractCustomOcioShaders,
     buildCustomOcioComputeShader,
     extractCustomOcioExportShaders,
+    buildCustomOcioBufferComputeShader,
 } from '../../shader/custom-ocio-shader-builder';
+import { getDctlCompiler, isCompileError } from '../../compiler/index';
+import type { CompileResult } from '../../compiler/index';
 
 const WASM_DIR = path.resolve(__dirname, '..', '..', '..', '..', '..');
 
@@ -354,6 +357,187 @@ describe('Custom OCIO Shader Pipeline', function () {
                 workingColorSpace: 'linear_working',
             });
             assert.equal(result.success, false);
+        });
+    });
+
+    describe('buildCustomOcioBufferComputeShader', () => {
+        /** Create a mock CompileResult for testing */
+        function createMockCompileResult(wgsl: string): CompileResult {
+            return {
+                wgsl,
+                diagnostics: [],
+                parameters: [],
+                entry_point: 'transform',
+            };
+        }
+
+        it('should build a buffer-based compute shader from export shaders', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success, `Extraction failed: ${extracted.error}`);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            assert.ok(result.computeWgsl.length > 0, 'Compute WGSL should not be empty');
+        });
+
+        it('should use storage buffers for I/O (not textures)', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            // Should have storage buffer bindings, not texture bindings
+            assert.ok(result.computeWgsl.includes('input_buffer: array<f32>'),
+                'Should use input_buffer storage buffer');
+            assert.ok(result.computeWgsl.includes('output_buffer'),
+                'Should use output_buffer storage buffer');
+            // Should NOT have source_texture (that's for the texture-based variant)
+            assert.ok(!result.computeWgsl.includes('source_texture'),
+                'Should NOT use source_texture');
+        });
+
+        it('should contain sw_ and ws_ OCIO transform functions', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            assert.ok(result.computeWgsl.includes('sw_'),
+                'Should contain sw_ source→working functions');
+            assert.ok(result.computeWgsl.includes('ws_'),
+                'Should contain ws_ working→source functions');
+        });
+
+        it('should have @compute entry point with workgroup_size(8, 8, 1)', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            assert.ok(result.computeWgsl.includes('@compute @workgroup_size(8, 8, 1)'),
+                'Should have @compute entry point');
+        });
+
+        it('should put OCIO LUT textures in Group 1', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            // All LUT texture bindings should be in group 1
+            const lutBindingMatches = result.computeWgsl.match(/@group\(1\)\s*@binding\(\d+\)\s*var/g);
+            if (result.textures.length > 0 || result.textures3D.length > 0) {
+                assert.ok(lutBindingMatches && lutBindingMatches.length > 0,
+                    'LUT textures should be in bind group 1');
+            }
+        });
+
+        it('should NOT contain hardcoded ACES matrices', async function () {
+            if (!configPath) return this.skip();
+            const extracted = extractCustomOcioExportShaders(configPath, {
+                sourceColorSpace: 'reference',
+                workingColorSpace: 'linear_working',
+            });
+            assert.ok(extracted.success);
+
+            const mockWgsl = `
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_R: f32, p_G: f32, p_B: f32) -> vec3<f32> {
+    return vec3<f32>(p_R, p_G, p_B);
+}`;
+            const compileResult = createMockCompileResult(mockWgsl);
+
+            const result = await buildCustomOcioBufferComputeShader(
+                WASM_DIR, extracted, compileResult,
+                { width: 1920, height: 1080 }
+            );
+            assert.ok(result.success, `Build failed: ${result.error}`);
+            assert.ok(!result.computeWgsl.includes('mat_ap0_to_ap1'),
+                'Should NOT contain hardcoded AP0→AP1 matrix');
+            assert.ok(!result.computeWgsl.includes('mat_ap1_to_ap0'),
+                'Should NOT contain hardcoded AP1→AP0 matrix');
         });
     });
 });

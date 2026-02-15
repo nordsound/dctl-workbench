@@ -254,9 +254,9 @@ function buildFragmentGlslForNaga(glsl: string): string {
 
     code = replaceSamplerTextureCalls(code, samplerResult.declarations);
 
-    // Find the main OCIO function — supports both prefixed and unprefixed names
+    // Find the main OCIO function — supports all prefixed and unprefixed names
     const mainFuncMatch = code.match(
-        /vec4\s+((?:sw_|wd_)?(?:OCIODisplay|ocio_main|OCIOMain))\s*\(/
+        /vec4\s+((?:sw_|wd_|ws_)?(?:OCIODisplay|ocio_main|OCIOMain))\s*\(/
     );
     const mainFunc = mainFuncMatch ? mainFuncMatch[1] : findOcioMainFunction(code);
 
@@ -864,6 +864,233 @@ export function extractCustomOcioExportShaders(
     return {
         sourceToWorking,
         workingToSource,
+        success: true,
+    };
+}
+
+export interface CustomOcioBufferComputeShaderResult {
+    /** Complete WGSL compute shader code */
+    computeWgsl: string;
+    /** Combined 2D LUT textures (sw_ + ws_) */
+    textures: GpuTexture[];
+    /** Combined 3D LUT textures (sw_ + ws_) */
+    textures3D: GpuTexture3D[];
+    /** Success flag */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+}
+
+/**
+ * Build a buffer-based compute shader for custom OCIO mode (CLI).
+ *
+ * Uses storage buffers for I/O (Group 0) and OCIO LUT textures (Group 1).
+ * Pipeline: source → working (sw_) → DCTL → working → source (ws_)
+ *
+ * This differs from buildCustomOcioComputeShader() which uses texture I/O
+ * for the VS Code extension's WebGPU renderer.
+ *
+ * @param wasmPath Path to WASM modules directory
+ * @param extractedShaders Result from extractCustomOcioExportShaders()
+ * @param compileResult Compiled DCTL result
+ * @param options Shader build options (width, height, paramValues)
+ * @returns Buffer-based compute shader WGSL with LUT texture data
+ */
+export async function buildCustomOcioBufferComputeShader(
+    wasmPath: string,
+    extractedShaders: CustomOcioExportShaderResult,
+    compileResult: CompileResult,
+    options: {
+        width: number;
+        height: number;
+        paramValues?: Record<string, number>;
+    },
+): Promise<CustomOcioBufferComputeShaderResult> {
+    const failResult: CustomOcioBufferComputeShaderResult = {
+        computeWgsl: '',
+        textures: [],
+        textures3D: [],
+        success: false,
+    };
+
+    if (!extractedShaders.success) {
+        return { ...failResult, error: `Input shaders not valid: ${extractedShaders.error}` };
+    }
+
+    const naga = getNagaProcessor();
+    if (!naga.isInitialized) {
+        await naga.init(wasmPath);
+    }
+
+    // === Convert source→working (sw_) GLSL to WGSL ===
+    const swFragmentGlsl = buildFragmentGlslForNaga(extractedShaders.sourceToWorking.glsl);
+    const swWgslResult = naga.convertFragmentToWGSL(swFragmentGlsl);
+    if (!swWgslResult.success) {
+        return { ...failResult, error: `Source→working GLSL→WGSL conversion failed: ${swWgslResult.error}` };
+    }
+    let swFunctions = extractWgslFunctionsOnly(swWgslResult.wgsl);
+    swFunctions = replaceTextureSampleWithLevel(swFunctions);
+
+    // === Convert working→source (ws_) GLSL to WGSL ===
+    const wsFragmentGlsl = buildFragmentGlslForNaga(extractedShaders.workingToSource.glsl);
+    const wsWgslResult = naga.convertFragmentToWGSL(wsFragmentGlsl);
+    if (!wsWgslResult.success) {
+        return { ...failResult, error: `Working→source GLSL→WGSL conversion failed: ${wsWgslResult.error}` };
+    }
+    let wsFunctions = extractWgslFunctionsOnly(wsWgslResult.wgsl);
+    wsFunctions = replaceTextureSampleWithLevel(wsFunctions);
+
+    // === Build combined LUT texture bindings for Group 1 ===
+    const allTextures = [
+        ...extractedShaders.sourceToWorking.textures,
+        ...extractedShaders.workingToSource.textures,
+    ];
+    const allTextures3D = [
+        ...extractedShaders.sourceToWorking.textures3D,
+        ...extractedShaders.workingToSource.textures3D,
+    ];
+
+    let lutBindings = '';
+    let bindingIndex = 0;
+
+    for (const tex of allTextures) {
+        const texName = `${tex.samplerName}_tex`;
+        const samplerName = `${tex.samplerName}_samp`;
+        lutBindings += `@group(1) @binding(${bindingIndex++}) var ${texName}: texture_2d<f32>;\n`;
+        lutBindings += `@group(1) @binding(${bindingIndex++}) var ${samplerName}: sampler;\n`;
+    }
+    for (const tex of allTextures3D) {
+        const texName = `${tex.samplerName}_tex`;
+        const samplerName = `${tex.samplerName}_samp`;
+        lutBindings += `@group(1) @binding(${bindingIndex++}) var ${texName}: texture_3d<f32>;\n`;
+        lutBindings += `@group(1) @binding(${bindingIndex++}) var ${samplerName}: sampler;\n`;
+    }
+
+    // Find main function names in WGSL
+    const swMainMatch = swFunctions.match(/fn\s+(sw_OCIODisplay|sw_ocio_main|sw_OCIOMain)\s*\(/);
+    const swMainName = swMainMatch ? swMainMatch[1] : extractedShaders.sourceToWorking.mainFunction;
+    const wsMainMatch = wsFunctions.match(/fn\s+(ws_OCIODisplay|ws_ocio_main|ws_OCIOMain)\s*\(/);
+    const wsMainName = wsMainMatch ? wsMainMatch[1] : extractedShaders.workingToSource.mainFunction;
+
+    // === Process DCTL WGSL ===
+    let dctlWgsl = compileResult.wgsl;
+
+    // Remove dctl_sampleTexture stub
+    dctlWgsl = dctlWgsl.replace(
+        /fn dctl_sampleTexture\([^)]*\)\s*->\s*vec4<f32>\s*\{[\s\S]*?return vec4<f32>\([^)]*\);[\s\S]*?\}/,
+        ''
+    );
+
+    // Detect transform type
+    const transformMatch = dctlWgsl.match(/fn\s+transform\s*\([^)]+\)/);
+    const isTextureBased = transformMatch ? transformMatch[0].includes('texture_2d') : false;
+
+    // Rewrite texture-based transform for compute (replace texture_2d with i32 dummy)
+    if (isTextureBased) {
+        dctlWgsl = dctlWgsl.replace(
+            /fn\s+transform\s*\(\s*p_Width\s*:\s*i32\s*,\s*p_Height\s*:\s*i32\s*,\s*p_X\s*:\s*i32\s*,\s*p_Y\s*:\s*i32\s*,\s*p_TexR\s*:\s*texture_2d<f32>\s*,\s*p_TexG\s*:\s*texture_2d<f32>\s*,\s*p_TexB\s*:\s*texture_2d<f32>\s*\)/g,
+            'fn transform(p_Width: i32, p_Height: i32, p_X: i32, p_Y: i32, p_TexR: i32, p_TexG: i32, p_TexB: i32)'
+        );
+    }
+
+    // Inject parameter values
+    if (options.paramValues) {
+        const { injectParameters } = await import('./index.js');
+        dctlWgsl = injectParameters(dctlWgsl, options.paramValues);
+    }
+
+    // Build transform call
+    const transformCall = isTextureBased
+        ? 'let result = transform(p_Width, p_Height, x, y, 0, 0, 0);'
+        : 'let result = transform(p_Width, p_Height, x, y, working.x, working.y, working.z);';
+
+    // === Assemble buffer-based compute shader ===
+    const computeWgsl = `/**
+ * Custom OCIO Buffer Compute Shader (CLI)
+ * Generated by custom-ocio-shader-builder
+ * Pipeline: source → working (OCIO) → DCTL → working → source (OCIO)
+ */
+
+// Built-in parameters
+const p_Width: i32 = ${options.width};
+const p_Height: i32 = ${options.height};
+
+// ============================================================================
+// Bind Group 0: Storage Buffers (RGB float32)
+// ============================================================================
+@group(0) @binding(0) var<storage, read> input_buffer: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_buffer: array<f32>;
+
+// ============================================================================
+// Bind Group 1: OCIO LUT Textures (sw_ + ws_)
+// ============================================================================
+${lutBindings}
+// ============================================================================
+// Source → Working Transform Functions (sw_)
+// ============================================================================
+${swFunctions}
+
+// ============================================================================
+// Working → Source Transform Functions (ws_)
+// ============================================================================
+${wsFunctions}
+
+// ============================================================================
+// DCTL Texture Sampling (buffer-based + sw_ transform)
+// ============================================================================
+var<private> current_pixel_x: i32 = 0;
+var<private> current_pixel_y: i32 = 0;
+
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    let px = clamp(x, 0, p_Width - 1);
+    let py = clamp(y, 0, p_Height - 1);
+    let idx = (py * p_Width + px) * 3;
+    let source_color = vec4<f32>(input_buffer[idx], input_buffer[idx + 1], input_buffer[idx + 2], 1.0);
+    return ${swMainName}(source_color);
+}
+
+// ============================================================================
+// DCTL Functions
+// ============================================================================
+${dctlWgsl}
+
+// ============================================================================
+// Compute Shader Main
+// ============================================================================
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let x = i32(global_id.x);
+    let y = i32(global_id.y);
+
+    if (x >= p_Width || y >= p_Height) {
+        return;
+    }
+
+    current_pixel_x = x;
+    current_pixel_y = y;
+
+    // Read source pixel and convert to working color space
+    let idx = (y * p_Width + x) * 3;
+    let source_color = vec4<f32>(input_buffer[idx], input_buffer[idx + 1], input_buffer[idx + 2], 1.0);
+    let working = ${swMainName}(source_color);
+
+    // Apply DCTL transform (in working color space)
+    ${transformCall}
+
+    // Convert working → source via OCIO
+    let out_color = ${wsMainName}(vec4<f32>(result.x, result.y, result.z, 1.0));
+
+    // Write output
+    output_buffer[idx] = out_color.x;
+    output_buffer[idx + 1] = out_color.y;
+    output_buffer[idx + 2] = out_color.z;
+}
+`;
+
+    return {
+        computeWgsl,
+        textures: allTextures,
+        textures3D: allTextures3D,
         success: true,
     };
 }
