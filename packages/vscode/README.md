@@ -18,7 +18,7 @@ A Visual Studio Code extension for developing DaVinci Color Transform Language (
 - **Real-time Diagnostics** — Syntax errors and warnings as you type, powered by a native DCTL parser
 - **IntelliSense** — Auto-completion for 60+ DCTL functions and keywords with documentation
 - **Hover Documentation** — Function signatures, parameter types, return values, and code examples on hover
-- **40+ Code Snippets** — Transform entry points, UI controls, math operations, color space conversions, and more
+- **100+ Code Snippets** — Transform entry points, UI controls, math operations, color space conversions, and more
 
 ### EXR Viewer
 
@@ -29,7 +29,7 @@ Built-in custom editor for OpenEXR files with DCTL integration:
 - **ACES Color Pipeline** — Working color spaces: ACES2065-1, ACEScg, ACEScc, ACEScct, Linear sRGB
 - **Reference Gamut Compression** — ACES 2.0 RGC with configurable peak luminance
 - **GPU Accelerated** — WebGPU rendering with WebGL2 and CPU fallbacks
-- **EXR Export** — Export processed images with configurable compression (ZIP, PIZ, RLE, ZIPS, NONE)
+- **EXR Export** — Export processed images with configurable compression (10 formats: lossless ZIP, PIZ, RLE, ZIPS and lossy PXR24, B44, B44A, DWAA, DWAB)
 - **UI Parameter Controls** — Automatically generates sliders, checkboxes, and dropdowns from `DEFINE_UI_PARAMS`
 
 ### DaVinci Resolve Integration
