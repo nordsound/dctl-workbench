@@ -317,10 +317,11 @@ build_wrapper() {
         -sINITIAL_MEMORY=67108864 \
         -sMAXIMUM_MEMORY=536870912 \
         -sEXPORTED_FUNCTIONS="['_malloc','_free']" \
-        -sEXPORTED_RUNTIME_METHODS="['HEAPU8','HEAPF32','setValue','getValue']" \
+        -sEXPORTED_RUNTIME_METHODS="['HEAPU8','HEAPF32','setValue','getValue','FS','NODEFS']" \
         -sMODULARIZE=1 \
         -sEXPORT_NAME='createOCIO' \
-        -sNO_FILESYSTEM=1 \
+        -sFORCE_FILESYSTEM=1 \
+        -lnodefs.js \
         -sDISABLE_EXCEPTION_CATCHING=0 \
         --bind \
         "$wrapper_src" \

@@ -1,0 +1,52 @@
+ocio_profile_version: 2.1
+
+environment: {}
+
+search_path: luts
+
+roles:
+  default: raw
+  scene_linear: linear_working
+
+displays:
+  sRGB:
+    - !<View> {name: Raw, colorspace: raw}
+    - !<View> {name: Film, colorspace: film_look}
+
+active_displays: [sRGB]
+active_views: [Film, Raw]
+
+colorspaces:
+  - !<ColorSpace>
+    name: reference
+    family: Scene
+    isdata: false
+
+  - !<ColorSpace>
+    name: linear_working
+    family: Scene
+    isdata: false
+    to_scene_reference: !<MatrixTransform> {matrix: [1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: raw
+    family: Utility
+    isdata: true
+
+  - !<ColorSpace>
+    name: log_encoding
+    family: Scene
+    isdata: false
+    to_scene_reference: !<FileTransform> {src: log_to_linear.cube, interpolation: linear}
+
+  - !<ColorSpace>
+    name: film_look
+    family: Display
+    isdata: false
+    from_scene_reference: !<FileTransform> {src: film_look.cube, interpolation: tetrahedral}
+
+display_colorspaces:
+  - !<ColorSpace>
+    name: sRGB_display
+    family: Display
+    isdata: false

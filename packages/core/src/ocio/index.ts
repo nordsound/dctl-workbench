@@ -140,12 +140,69 @@ export class OCIOProcessor {
         this.processor = new this.module.OCIOProcessor();
     }
 
+    private mountedPath: string | null = null;
+
     /**
      * Initialize with a built-in config
      * @param configName Config name (default: studio-config-v4.0.0_aces-v2.0_ocio-v2.5)
      */
     init(configName: string = ''): boolean {
         return this.processor.initBuiltinConfig(configName);
+    }
+
+    /**
+     * Initialize from a config file on the filesystem.
+     * Mounts the config's parent directory via NODEFS so OCIO can resolve
+     * relative LUT file references (search_path).
+     */
+    initFromFile(configPath: string): boolean {
+        const absPath = path.resolve(configPath);
+        const configDir = path.dirname(absPath);
+        const configName = path.basename(absPath);
+
+        this.mountConfigDirectory(configDir);
+
+        const wasmConfigPath = `/ocio/${configName}`;
+        try {
+            return this.processor.initConfigFromFile(wasmConfigPath);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Initialize from a config YAML string.
+     * Only works for configs without external LUT file references.
+     */
+    initFromString(configContent: string): boolean {
+        try {
+            return this.processor.initConfigFromString(configContent);
+        } catch {
+            // WASM may throw numeric exceptions for severely malformed input
+            return false;
+        }
+    }
+
+    /**
+     * Create a chained transform: working → source → display/view.
+     * Uses OCIO GroupTransform to combine into a single GPU shader.
+     */
+    createChainedDisplayTransform(workingCS: string, sourceCS: string, display: string, view: string): boolean {
+        return this.processor.createChainedDisplayTransform(workingCS, sourceCS, display, view);
+    }
+
+    /**
+     * Get the family string of a color space (for filtering scene/display-referred)
+     */
+    getColorSpaceFamily(name: string): string {
+        return this.processor.getColorSpaceFamily(name);
+    }
+
+    /**
+     * Check if a color space is scene-referred (vs display-referred)
+     */
+    isSceneReferred(name: string): boolean {
+        return this.processor.isSceneReferred(name);
     }
 
     /**
@@ -473,7 +530,43 @@ export class OCIOProcessor {
      * Clean up resources
      */
     dispose(): void {
+        if (this.mountedPath) {
+            try {
+                this.module.FS.unmount(this.mountedPath);
+            } catch {
+                // Ignore unmount errors during cleanup
+            }
+            this.mountedPath = null;
+        }
         this.processor.delete();
+    }
+
+    /**
+     * Mount a host directory into the WASM filesystem via NODEFS.
+     * Creates /ocio mountpoint and mounts the given directory there.
+     */
+    private mountConfigDirectory(hostDir: string): void {
+        // Unmount previous if any
+        if (this.mountedPath) {
+            try {
+                this.module.FS.unmount(this.mountedPath);
+            } catch {
+                // Ignore
+            }
+            this.mountedPath = null;
+        }
+
+        const mountpoint = '/ocio';
+
+        // Create mountpoint directory if it doesn't exist
+        try {
+            this.module.FS.stat(mountpoint);
+        } catch {
+            this.module.FS.mkdir(mountpoint);
+        }
+
+        this.module.FS.mount(this.module.NODEFS, { root: hostDir }, mountpoint);
+        this.mountedPath = mountpoint;
     }
 }
 

@@ -69,9 +69,26 @@ export interface OCIOProcessorInstance {
     getLastError(): string;
     hasTransform(): boolean;
     getConfigDescription(): string;
+    initConfigFromFile(configPath: string): boolean;
+    initConfigFromString(configContent: string): boolean;
+    createChainedDisplayTransform(workingCS: string, sourceCS: string, display: string, view: string): boolean;
+    getColorSpaceFamily(name: string): string;
+    isSceneReferred(name: string): boolean;
     setupGpuProcessor(): boolean;
     extractGpuShaderInfo(): GpuShaderInfo;
     delete(): void;
+}
+
+export interface EmscriptenFS {
+    mkdir(path: string): void;
+    mount(type: EmscriptenFSType, opts: { root: string }, mountpoint: string): void;
+    unmount(mountpoint: string): void;
+    stat(path: string): { mode: number };
+    isDir(mode: number): boolean;
+}
+
+export interface EmscriptenFSType {
+    // Opaque type representing NODEFS, MEMFS, etc.
 }
 
 export interface OCIOModule {
@@ -84,6 +101,8 @@ export interface OCIOModule {
     HEAPF32: Float32Array;
     setValue(ptr: number, value: number, type: string): void;
     getValue(ptr: number, type: string): number;
+    FS: EmscriptenFS;
+    NODEFS: EmscriptenFSType;
 }
 
 export type CreateOCIO = (options?: { wasmBinary?: ArrayBuffer }) => Promise<OCIOModule>;
