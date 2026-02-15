@@ -35,7 +35,7 @@ DCTL Workbench provides a complete development environment for writing, testing,
 - **ACES Color Pipeline**
   - Full ACES 2.0 workflow
   - ACES 2.0 Reference Gamut Compression (RGC) support
-  - Working color space options (ACEScct, ACEScc, ACEScg)
+  - Working color space options (ACES2065-1, ACEScg, ACEScc, ACEScct, Linear sRGB)
   - Display transforms via OpenColorIO
 
 ### CLI Tool
@@ -162,15 +162,21 @@ npm run build:vscode    # VS Code extension
 
 #### Settings
 
-| Setting                                | Default      | Description                         |
-|----------------------------------------|--------------|-------------------------------------|
-| `dctlWorkbench.dctl.autoPreview`       | `true`       | Auto-update preview on file changes |
-| `dctlWorkbench.dctl.previewDebounceMs` | `300`        | Debounce time for auto preview      |
-| `dctlWorkbench.colorSpace.working`     | `ACES2065-1` | Working color space                 |
-| `dctlWorkbench.colorSpace.display`     | `sRGB`       | Display color space                 |
-| `dctlWorkbench.preview.renderer`       | `auto`       | Renderer (webgpu/webgl2/cpu)        |
-| `dctlWorkbench.export.exrCompression`  | `ZIP`        | EXR export compression              |
-| `dctlWorkbench.diagnostics.enabled`    | `true`       | Enable DCTL diagnostics             |
+**EXR Viewer** (`dctlWorkbench.exr_viewer.*`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `defaultWorkingColorSpace` | `ACEScct` | Default working color space (can be changed per viewer) |
+| `defaultExportCompression` | `PIZ` | Default EXR export compression method |
+
+**Editor** (`dctlWorkbench.editor.*`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `diagnostics` | `true` | Enable DCTL syntax checking and diagnostics |
+| `diagnosticsDebounceMs` | `500` | Debounce time for diagnostics update (ms) |
+| `nagaValidation` | `true` | Enable Naga (WGSL) validation in addition to syntax checking |
+| `resolveDctlDirectory` | *(empty)* | Path to DaVinci Resolve DCTL directory |
 
 ### CLI Tool
 
