@@ -13,6 +13,10 @@
 import { OCIOProcessor } from '../ocio/index.js';
 import { getNagaProcessor } from '../naga/index.js';
 import type { GpuTexture, GpuTexture3D } from '../ocio/types.js';
+import type { DctlParam, TextureBinding } from '../types/index.js';
+import type { CompileResult } from '../compiler/index.js';
+import { getDctlCompiler, isCompileError } from '../compiler/index.js';
+import { buildShaderParamMapping, type ShaderParamMapping } from './dctl-shader-builder.js';
 import {
     fixGlslForNaga,
     processSamplerDeclarations,
@@ -208,12 +212,29 @@ export interface CustomOcioComputeShaderResult {
     textures: GpuTexture[];
     /** Combined 3D LUT textures (sw_ + wd_) */
     textures3D: GpuTexture3D[];
+    /** Texture and sampler bindings */
+    bindings: TextureBinding[];
     /** Whether DCTL is included */
     hasDctl: boolean;
+    /** DCTL parameter mapping (when hasDctl is true) */
+    paramMapping: ShaderParamMapping[];
+    /** Uniform buffer binding index */
+    uniformBufferBinding: number;
     /** Success flag */
     success: boolean;
     /** Error message if failed */
     error?: string;
+}
+
+export interface CustomOcioDctlOptions {
+    /** Raw DCTL source code */
+    dctlSource: string;
+    /** DCTL parameter definitions */
+    params: DctlParam[];
+    /** Use uniform buffer for fast parameter updates */
+    useUniformBuffer?: boolean;
+    /** Parameter values (baked as constants when not using UB) */
+    paramValues?: Record<string, number | boolean>;
 }
 
 // Workgroup size for compute shaders
@@ -338,16 +359,21 @@ function replaceTextureSampleWithLevel(code: string): string {
 export async function buildCustomOcioComputeShader(
     wasmPath: string,
     extractedShaders: CustomOcioShaderResult,
+    dctlOptions?: CustomOcioDctlOptions,
 ): Promise<CustomOcioComputeShaderResult> {
+    const failResult: CustomOcioComputeShaderResult = {
+        computeWgsl: '',
+        textures: [],
+        textures3D: [],
+        bindings: [],
+        hasDctl: false,
+        paramMapping: [],
+        uniformBufferBinding: 0,
+        success: false,
+    };
+
     if (!extractedShaders.success) {
-        return {
-            computeWgsl: '',
-            textures: [],
-            textures3D: [],
-            hasDctl: false,
-            success: false,
-            error: `Input shaders not valid: ${extractedShaders.error}`,
-        };
+        return { ...failResult, error: `Input shaders not valid: ${extractedShaders.error}` };
     }
 
     const naga = getNagaProcessor();
@@ -359,14 +385,7 @@ export async function buildCustomOcioComputeShader(
     const swFragmentGlsl = buildFragmentGlslForNaga(extractedShaders.sourceToWorking.glsl);
     const swWgslResult = naga.convertFragmentToWGSL(swFragmentGlsl);
     if (!swWgslResult.success) {
-        return {
-            computeWgsl: '',
-            textures: [],
-            textures3D: [],
-            hasDctl: false,
-            success: false,
-            error: `Source→working GLSL→WGSL conversion failed: ${swWgslResult.error}`,
-        };
+        return { ...failResult, error: `Source→working GLSL→WGSL conversion failed: ${swWgslResult.error}` };
     }
     let swFunctions = extractWgslFunctionsOnly(swWgslResult.wgsl);
     swFunctions = replaceTextureSampleWithLevel(swFunctions);
@@ -375,14 +394,7 @@ export async function buildCustomOcioComputeShader(
     const wdFragmentGlsl = buildFragmentGlslForNaga(extractedShaders.workingToDisplay.glsl);
     const wdWgslResult = naga.convertFragmentToWGSL(wdFragmentGlsl);
     if (!wdWgslResult.success) {
-        return {
-            computeWgsl: '',
-            textures: [],
-            textures3D: [],
-            hasDctl: false,
-            success: false,
-            error: `Working→display GLSL→WGSL conversion failed: ${wdWgslResult.error}`,
-        };
+        return { ...failResult, error: `Working→display GLSL→WGSL conversion failed: ${wdWgslResult.error}` };
     }
     let wdFunctions = extractWgslFunctionsOnly(wdWgslResult.wgsl);
     wdFunctions = replaceTextureSampleWithLevel(wdFunctions);
@@ -398,19 +410,24 @@ export async function buildCustomOcioComputeShader(
     ];
 
     let lutBindings = '';
+    const bindings: TextureBinding[] = [];
     let bindingIndex = 0;
 
     for (const tex of allTextures) {
         const texName = `${tex.samplerName}_tex`;
         const samplerName = `${tex.samplerName}_samp`;
-        lutBindings += `@group(2) @binding(${bindingIndex++}) var ${texName}: texture_2d<f32>;\n`;
-        lutBindings += `@group(2) @binding(${bindingIndex++}) var ${samplerName}: sampler;\n`;
+        lutBindings += `@group(2) @binding(${bindingIndex}) var ${texName}: texture_2d<f32>;\n`;
+        bindings.push({ binding: bindingIndex++, type: 'texture2D', name: texName });
+        lutBindings += `@group(2) @binding(${bindingIndex}) var ${samplerName}: sampler;\n`;
+        bindings.push({ binding: bindingIndex++, type: 'sampler', name: samplerName });
     }
     for (const tex of allTextures3D) {
         const texName = `${tex.samplerName}_tex`;
         const samplerName = `${tex.samplerName}_samp`;
-        lutBindings += `@group(2) @binding(${bindingIndex++}) var ${texName}: texture_3d<f32>;\n`;
-        lutBindings += `@group(2) @binding(${bindingIndex++}) var ${samplerName}: sampler;\n`;
+        lutBindings += `@group(2) @binding(${bindingIndex}) var ${texName}: texture_3d<f32>;\n`;
+        bindings.push({ binding: bindingIndex++, type: 'texture3D', name: texName });
+        lutBindings += `@group(2) @binding(${bindingIndex}) var ${samplerName}: sampler;\n`;
+        bindings.push({ binding: bindingIndex++, type: 'sampler', name: samplerName });
     }
 
     // Find the sw_ and wd_ main function names in the WGSL
@@ -419,12 +436,144 @@ export async function buildCustomOcioComputeShader(
     const wdMainMatch = wdFunctions.match(/fn\s+(wd_OCIODisplay|wd_ocio_main|wd_OCIOMain)\s*\(/);
     const wdMainName = wdMainMatch ? wdMainMatch[1] : extractedShaders.workingToDisplay.mainFunction;
 
+    // === Compile DCTL if provided ===
+    let dctlFunctionsWgsl = '';
+    let dctlMainSection = '';
+    let dctlSampleTextureWgsl = '';
+    let paramMapping: ShaderParamMapping[] = [];
+    let uniformBufferBinding = 0;
+    let hasDctl = false;
+    let paramStructFields = '';
+    let paramInitCode = '';
+
+    if (dctlOptions?.dctlSource) {
+        const dctlResult = await compileDctlForCustomOcio(wasmPath, dctlOptions);
+        if (!dctlResult.success) {
+            return { ...failResult, error: `DCTL compilation failed: ${dctlResult.error}` };
+        }
+
+        hasDctl = true;
+        dctlFunctionsWgsl = dctlResult.functions;
+        paramMapping = dctlResult.paramMapping;
+        uniformBufferBinding = dctlResult.uniformBufferBinding;
+
+        // Build dctl_sampleTexture that uses sw_ transform
+        dctlSampleTextureWgsl = `
+// DCTL Built-in: Sample texture at (x, y) → working color space
+fn dctl_sampleTexture(x: i32, y: i32) -> vec4<f32> {
+    let clamped_x = u32(clamp(x, 0, i32(params.width) - 1));
+    let clamped_y = u32(clamp(y, 0, i32(params.height) - 1));
+    let coords = vec2<u32>(clamped_x, clamped_y);
+    let source_color = textureLoad(source_texture, coords, 0);
+    return ${swMainName}(source_color);
+}
+`;
+
+        // Detect transform signature type
+        const usesTextureSampling = /fn\s+dctl_transform\s*\([^)]*texture_2d/.test(dctlFunctionsWgsl);
+        const dctlEntryPoint = dctlResult.entryPoint;
+
+        // Build param init code for uniform buffer
+        if (dctlOptions.useUniformBuffer && paramMapping.length > 0) {
+            // Extract actual var<private> names from generated WGSL
+            const actualVarNames = new Map<string, string>();
+            const privateVarRegex = /var<private>\s+(\w+)\s*:\s*(?:f32|i32|bool);/g;
+            let m;
+            while ((m = privateVarRegex.exec(dctlFunctionsWgsl)) !== null) {
+                for (const param of paramMapping) {
+                    if (m[1] === param.glslName || m[1].startsWith(`${param.glslName}_`)) {
+                        actualVarNames.set(param.glslName, m[1]);
+                        break;
+                    }
+                }
+            }
+            const initLines = paramMapping.map(p => {
+                const actualName = actualVarNames.get(p.glslName) || p.glslName;
+                return `    ${actualName} = get_${p.glslName}();`;
+            });
+            paramInitCode = `\n    // Initialize DCTL parameters from uniform buffer\n${initLines.join('\n')}\n`;
+
+            // Build struct fields for uniform buffer params
+            paramStructFields = paramMapping.map(p => {
+                const wgslType = p.type === 'float' ? 'f32' : p.type === 'int' ? 'i32' : 'u32';
+                return `    ${p.glslName}: ${wgslType},`;
+            }).join('\n');
+        }
+
+        // Build transform call
+        let transformCall: string;
+        if (usesTextureSampling) {
+            transformCall = `let dctl_result = ${dctlEntryPoint}(p_Width, p_Height, p_X, p_Y, source_texture, source_texture, source_texture);`;
+        } else {
+            transformCall = `let dctl_result = ${dctlEntryPoint}(p_Width, p_Height, p_X, p_Y, working_color.r, working_color.g, working_color.b);`;
+        }
+
+        // Main function with DCTL
+        dctlMainSection = `
+@compute @workgroup_size(${WORKGROUP_SIZE_X}, ${WORKGROUP_SIZE_Y})
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let coords = global_id.xy;
+
+    if (coords.x >= params.width || coords.y >= params.height) {
+        return;
+    }
+
+    let p_Width = i32(params.width);
+    let p_Height = i32(params.height);
+    let p_X = i32(coords.x);
+    let p_Y = i32(coords.y);
+${paramInitCode}
+    // Load source pixel and convert to working color space
+    let source_color = textureLoad(source_texture, coords, 0);
+    let working_color = ${swMainName}(source_color);
+
+    // Apply DCTL transform (operates in working color space)
+    ${transformCall}
+
+    // Apply working → display transform
+    let display_color = ${wdMainName}(vec4<f32>(dctl_result.x, dctl_result.y, dctl_result.z, 1.0));
+
+    textureStore(output_texture, coords, max(display_color, vec4<f32>(0.0)));
+}
+`;
+    }
+
+    // Build Params struct
+    const paramsStruct = hasDctl && paramStructFields
+        ? `struct Params {
+    width: u32,
+    height: u32,
+${paramStructFields}
+}` : `struct Params {
+    width: u32,
+    height: u32,
+    _padding: vec2<u32>,
+}`;
+
+    // Non-DCTL main function
+    const mainFunction = hasDctl ? dctlMainSection : `
+@compute @workgroup_size(${WORKGROUP_SIZE_X}, ${WORKGROUP_SIZE_Y})
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let coords = global_id.xy;
+
+    if (coords.x >= params.width || coords.y >= params.height) {
+        return;
+    }
+
+    let source_color = textureLoad(source_texture, coords, 0);
+    let working_color = ${swMainName}(source_color);
+    let display_color = ${wdMainName}(working_color);
+
+    textureStore(output_texture, coords, max(display_color, vec4<f32>(0.0)));
+}
+`;
+
     // === Assemble complete compute shader ===
     const computeWgsl = `/**
  * Custom OCIO Compute Shader
  * Generated by custom-ocio-shader-builder
  * Mode: Custom OCIO (non-ACES)
- * DCTL: Disabled
+ * DCTL: ${hasDctl ? 'Enabled' : 'Disabled'}
  * RGC: Disabled (not applicable in custom OCIO mode)
  */
 
@@ -446,11 +595,7 @@ ${lutBindings}
 // ============================================================================
 // Bind Group 3: Parameters
 // ============================================================================
-struct Params {
-    width: u32,
-    height: u32,
-    _padding: vec2<u32>,
-}
+${paramsStruct}
 @group(3) @binding(0) var<uniform> params: Params;
 
 // ============================================================================
@@ -462,38 +607,121 @@ ${swFunctions}
 // Working → Display Transform Functions (wd_)
 // ============================================================================
 ${wdFunctions}
-
+${dctlSampleTextureWgsl}
+${dctlFunctionsWgsl}
 // ============================================================================
 // Compute Shader Main
 // ============================================================================
-@compute @workgroup_size(${WORKGROUP_SIZE_X}, ${WORKGROUP_SIZE_Y})
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let coords = global_id.xy;
-
-    // Bounds check
-    if (coords.x >= params.width || coords.y >= params.height) {
-        return;
-    }
-
-    // Load source pixel
-    let source_color = textureLoad(source_texture, coords, 0);
-
-    // Apply source → working color space transform
-    let working_color = ${swMainName}(source_color);
-
-    // Apply working → display color space transform (chained)
-    let display_color = ${wdMainName}(working_color);
-
-    // Store result (only clamp negative values, allow HDR values > 1.0)
-    textureStore(output_texture, coords, max(display_color, vec4<f32>(0.0)));
-}
+${mainFunction}
 `;
 
     return {
         computeWgsl,
         textures: allTextures,
         textures3D: allTextures3D,
-        hasDctl: false,
+        bindings,
+        hasDctl,
+        paramMapping,
+        uniformBufferBinding,
+        success: true,
+    };
+}
+
+/**
+ * Compile DCTL source to WGSL for use in custom OCIO compute shader.
+ * Handles function renaming (dctl_ prefix) and stub removal.
+ */
+async function compileDctlForCustomOcio(
+    wasmPath: string,
+    options: CustomOcioDctlOptions,
+): Promise<{
+    functions: string;
+    paramMapping: ShaderParamMapping[];
+    entryPoint: string;
+    uniformBufferBinding: number;
+    success: boolean;
+    error?: string;
+}> {
+    const compiler = getDctlCompiler();
+    if (!compiler.isInitialized) {
+        await compiler.init(wasmPath);
+    }
+
+    const paramMapping = buildShaderParamMapping(options.params);
+
+    const result = compiler.compile(options.dctlSource);
+    if (isCompileError(result)) {
+        return {
+            functions: '',
+            paramMapping,
+            entryPoint: 'transform',
+            uniformBufferBinding: 0,
+            success: false,
+            error: result.message,
+        };
+    }
+
+    const compileResult = result as CompileResult;
+    const errors = compileResult.diagnostics.filter(d => d.severity === 'error');
+    if (errors.length > 0) {
+        return {
+            functions: '',
+            paramMapping,
+            entryPoint: compileResult.entry_point || 'transform',
+            uniformBufferBinding: 0,
+            success: false,
+            error: errors.map(e => `Line ${e.line}: ${e.message}`).join('\n'),
+        };
+    }
+
+    let wgsl = compileResult.wgsl;
+
+    // Collect user-defined function names for renaming
+    const userFunctionNames: Set<string> = new Set();
+    const fnDefRegex = /fn\s+(\w+)\s*\(/g;
+    let match;
+    while ((match = fnDefRegex.exec(wgsl)) !== null) {
+        const fnName = match[1];
+        if (!fnName.startsWith('dctl_') && fnName !== 'main') {
+            userFunctionNames.add(fnName);
+        }
+    }
+
+    // Add dctl_ prefix to function definitions
+    for (const fnName of userFunctionNames) {
+        const defRegex = new RegExp(`\\bfn\\s+${fnName}\\s*\\(`, 'g');
+        wgsl = wgsl.replace(defRegex, `fn dctl_${fnName}(`);
+    }
+
+    // Add dctl_ prefix to function calls
+    for (const fnName of userFunctionNames) {
+        const callRegex = new RegExp(`(?<!\\.|dctl_)\\b${fnName}\\s*\\(`, 'g');
+        wgsl = wgsl.replace(callRegex, `dctl_${fnName}(`);
+    }
+
+    // Remove the Rust-generated dctl_sampleTexture stub
+    wgsl = wgsl.replace(
+        /fn\s+dctl_sampleTexture\([^)]*\)\s*->\s*vec4<f32>\s*\{[^}]*return\s+vec4<f32>\(0f,\s*0f,\s*0f,\s*0f\);[^}]*\}/g,
+        ''
+    );
+
+    const entryPoint = compileResult.entry_point || 'transform';
+    const dctlEntryPoint = entryPoint.startsWith('dctl_') ? entryPoint : `dctl_${entryPoint}`;
+
+    // Build uniform buffer accessor functions
+    let ubAccessors = '';
+    if (options.useUniformBuffer && paramMapping.length > 0) {
+        ubAccessors = paramMapping.map(p => {
+            const wgslType = p.type === 'float' ? 'f32' : p.type === 'int' ? 'i32' : 'u32';
+            return `fn get_${p.glslName}() -> ${wgslType} { return params.${p.glslName}; }`;
+        }).join('\n');
+    }
+
+    return {
+        functions: ubAccessors + '\n' + wgsl,
+        paramMapping,
+        entryPoint: dctlEntryPoint,
+        uniformBufferBinding: 0,
         success: true,
     };
 }

@@ -10,16 +10,16 @@ import * as fs from 'fs';
 import { performance } from 'perf_hooks';
 import { EXRReader, EXRWriter, Compression, PixelType, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory, isOpenEXRInitialized } from '../exr';
 import { initOCIO, OCIOProcessor, setWasmDirectory, DctlRuntime } from '@dctl-workbench/core';
-import { buildWgslShader, buildIntegratedShader, buildDctlExportShader } from '../shader';
+import { buildWgslShader, buildIntegratedShader, buildDctlExportShader, extractCustomOcioShaders, buildCustomOcioComputeShader } from '../shader';
 import { preprocessDctlSource } from '../dctl/preprocessor';
 import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
-import { parseCompressionSetting, parseWorkingColorSpace } from './settings-helpers';
+import { parseCompressionSetting, parseWorkingColorSpace, parseOcioConfigPath, determinePipelineMode, type PipelineMode } from './settings-helpers';
 
 // DCTL state for each webview
 interface DctlState {
     filePath: string | null;
     enabled: boolean;
-    workingColorSpace: 'ACES2065-1' | 'ACEScg' | 'ACEScc' | 'ACEScct' | 'linear_sRGB';
+    workingColorSpace: string; // Dynamic in custom OCIO mode (was DctlColorSpace in ACES mode)
     params: DctlParam[];
     paramValues: Record<string, number | boolean | DctlColorValue>;
     fileWatcher: vscode.FileSystemWatcher | null;
@@ -35,6 +35,12 @@ interface DctlState {
     // ACES 2.0 Reference Gamut Compression
     applyRgc: boolean;
     rgcPeakLuminance: number;
+    // Pipeline mode: 'aces' (built-in) or 'custom-ocio' (user config)
+    pipelineMode: PipelineMode;
+    // Custom OCIO config path (null for built-in ACES)
+    ocioConfigPath: string | null;
+    // Available color spaces from custom OCIO config (scene-referred only)
+    customColorSpaces: string[];
 }
 
 // Debug logging - use shared logger module
@@ -178,6 +184,11 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
 
         // Export with DCTL applied (direct export without save dialog)
         try {
+            // Custom OCIO mode: export not yet supported
+            if (state.pipelineMode === 'custom-ocio') {
+                throw new Error('EXR export is not yet supported in custom OCIO mode');
+            }
+
             const dctlShaderInfo = this.dctlShaderInfos.get(panel);
             if (!dctlShaderInfo) {
                 throw new Error('No DCTL shader info available');
@@ -306,7 +317,12 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             throw new Error('No DCTL shader info available');
         }
 
-        writeLog(`Starting EXR export... RGC=${state.applyRgc ? 'enabled' : 'disabled'}, peakLuminance=${state.rgcPeakLuminance ?? 100}`);
+        writeLog(`Starting EXR export... pipelineMode=${state.pipelineMode}, RGC=${state.applyRgc ? 'enabled' : 'disabled'}, peakLuminance=${state.rgcPeakLuminance ?? 100}`);
+
+        // Custom OCIO mode: export not yet supported (requires compute shader export pipeline)
+        if (state.pipelineMode === 'custom-ocio') {
+            throw new Error('EXR export is not yet supported in custom OCIO mode');
+        }
 
         // Build export shader (DCTL only, no OCIO display transform)
         // Pass RGC settings from viewer state
@@ -545,11 +561,17 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     }
 
     private createDefaultDctlState(): DctlState {
+        const config = vscode.workspace.getConfiguration('dctlWorkbench');
+        const ocioConfigPath = parseOcioConfigPath(
+            config.get('exr_viewer.ocioConfigPath', '')
+        );
+        const pipelineMode = determinePipelineMode(ocioConfigPath);
+
         return {
             filePath: null,
             enabled: false,
             workingColorSpace: parseWorkingColorSpace(
-                vscode.workspace.getConfiguration('dctlWorkbench').get('exr_viewer.defaultWorkingColorSpace', 'ACEScct')
+                config.get('exr_viewer.defaultWorkingColorSpace', 'ACEScct')
             ),
             params: [],
             paramValues: {},
@@ -561,6 +583,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             hasDctlSupport: false,  // Set to true when webview confirms DCTL compute pipeline is built
             applyRgc: false,  // ACES 2.0 Reference Gamut Compression (OCIO-based)
             rgcPeakLuminance: 100,  // Peak luminance in nits (100 for SDR)
+            pipelineMode,
+            ocioConfigPath,
+            customColorSpaces: [],
         };
     }
 
@@ -887,79 +912,86 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 }
             }
 
-            // Initialize OCIO and get available displays/views/color spaces
-            setWasmDirectory(wasmDir);
-            await initOCIO();
-            const processor = new OCIOProcessor();
-            processor.init();
-
-            const colorSpaces = processor.getColorSpaces();
-            const displays = processor.getDisplays();
-            const displayViewMap: Record<string, string[]> = {};
-            for (const display of displays) {
-                displayViewMap[display] = processor.getViews(display);
-            }
-            perf.lap('Initialize OCIO');
-
-            // Get GPU shader for default transform (source -> sRGB display)
-            const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
-            const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
-
-            // Store OCIO state for DCTL shader rebuilding
-            this.currentOcioState = { source: colorSpace, display: defaultDisplay, view: defaultView };
-
-            processor.createDisplayTransform(colorSpace, defaultDisplay, defaultView);
-            processor.setupGpuProcessor();
-            const shaderInfo = processor.extractGpuShaderInfo();
-            processor.dispose();
-            perf.lap('Generate OCIO GPU shader');
-
-            // Convert GLSL to WGSL for WebGPU
             const extensionPath = this.context.extensionPath;
-            const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
-            if (!wgslResult.success) {
-                writeLog(`WGSL conversion failed: ${wgslResult.error}`);
-            }
-            perf.lap('Convert GLSL to WGSL');
 
-            // Send image data to webview using ArrayBuffer for efficient transfer
-            // Structured clone algorithm handles ArrayBuffers without JSON serialization
-            webview.postMessage({
-                type: 'loadImage',
-                data: {
-                    width: imageData.width,
-                    height: imageData.height,
-                    channels: imageData.channels.length,
-                    // Pass ArrayBuffer directly - avoid JSON serialization
-                    buffer: imageData.pixels.buffer,
-                    byteOffset: imageData.pixels.byteOffset,
-                    byteLength: imageData.pixels.byteLength,
-                    colorSpace,
-                    colorSpaceDetected,
-                    compression: imageData.compressionName,
-                    bitDepth: imageData.pixelTypeName,
-                    colorSpaces,
-                    displays,
-                    defaultDisplay,
-                    defaultView,
-                    displayViewMap,
-                    // GLSL shader info (for WebGL fallback)
-                    shaderInfo: {
-                        shaderText: shaderInfo.shaderText,
-                        textures: shaderInfo.textures,
-                        textures3D: shaderInfo.textures3D,
-                        uniforms: shaderInfo.uniforms,
+            if (dctlState && dctlState.pipelineMode === 'custom-ocio' && dctlState.ocioConfigPath) {
+                // === Custom OCIO Mode ===
+                await this.loadImageCustomOcio(
+                    webview, perf, imageData, dctlState,
+                    colorSpace, colorSpaceDetected, wasmDir
+                );
+            } else {
+                // === ACES Mode (default) ===
+                // Initialize OCIO and get available displays/views/color spaces
+                setWasmDirectory(wasmDir);
+                await initOCIO();
+                const processor = new OCIOProcessor();
+                processor.init();
+
+                const colorSpaces = processor.getColorSpaces();
+                const displays = processor.getDisplays();
+                const displayViewMap: Record<string, string[]> = {};
+                for (const display of displays) {
+                    displayViewMap[display] = processor.getViews(display);
+                }
+                perf.lap('Initialize OCIO');
+
+                // Get GPU shader for default transform (source -> sRGB display)
+                const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
+                const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
+
+                // Store OCIO state for DCTL shader rebuilding
+                this.currentOcioState = { source: colorSpace, display: defaultDisplay, view: defaultView };
+
+                processor.createDisplayTransform(colorSpace, defaultDisplay, defaultView);
+                processor.setupGpuProcessor();
+                const shaderInfo = processor.extractGpuShaderInfo();
+                processor.dispose();
+                perf.lap('Generate OCIO GPU shader');
+
+                // Convert GLSL to WGSL for WebGPU
+                const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
+                if (!wgslResult.success) {
+                    writeLog(`WGSL conversion failed: ${wgslResult.error}`);
+                }
+                perf.lap('Convert GLSL to WGSL');
+
+                // Send image data to webview using ArrayBuffer for efficient transfer
+                webview.postMessage({
+                    type: 'loadImage',
+                    data: {
+                        width: imageData.width,
+                        height: imageData.height,
+                        channels: imageData.channels.length,
+                        buffer: imageData.pixels.buffer,
+                        byteOffset: imageData.pixels.byteOffset,
+                        byteLength: imageData.pixels.byteLength,
+                        colorSpace,
+                        colorSpaceDetected,
+                        compression: imageData.compressionName,
+                        bitDepth: imageData.pixelTypeName,
+                        colorSpaces,
+                        displays,
+                        defaultDisplay,
+                        defaultView,
+                        displayViewMap,
+                        pipelineMode: 'aces',
+                        shaderInfo: {
+                            shaderText: shaderInfo.shaderText,
+                            textures: shaderInfo.textures,
+                            textures3D: shaderInfo.textures3D,
+                            uniforms: shaderInfo.uniforms,
+                        },
+                        wgslShaderInfo: wgslResult.success ? {
+                            wgslCode: wgslResult.wgslCode,
+                            computeWgslCode: wgslResult.computeWgslCode,
+                            textures: shaderInfo.textures,
+                            textures3D: shaderInfo.textures3D,
+                            bindings: wgslResult.bindings,
+                        } : null,
                     },
-                    // WGSL shader info (for WebGPU)
-                    wgslShaderInfo: wgslResult.success ? {
-                        wgslCode: wgslResult.wgslCode,
-                        computeWgslCode: wgslResult.computeWgslCode,  // For compute pipeline
-                        textures: shaderInfo.textures,
-                        textures3D: shaderInfo.textures3D,
-                        bindings: wgslResult.bindings,
-                    } : null,
-                },
-            });
+                });
+            }
             perf.lap('Post message to webview');
             perf.end();
         } catch (error) {
@@ -971,6 +1003,134 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 message: `Failed to load EXR: ${message}`,
             });
         }
+    }
+
+    /**
+     * Load image in custom OCIO mode.
+     * Initializes OCIO from user-provided config file.
+     */
+    private async loadImageCustomOcio(
+        webview: vscode.Webview,
+        perf: PerfTimer,
+        imageData: { width: number; height: number; channels: { name: string }[]; pixels: Float32Array; compressionName?: string; pixelTypeName?: string },
+        dctlState: DctlState,
+        colorSpace: string,
+        colorSpaceDetected: boolean,
+        wasmDir: string,
+    ): Promise<void> {
+        const configPath = dctlState.ocioConfigPath!;
+        writeLog(`[Custom OCIO] Loading with config: ${configPath}`);
+
+        // Initialize OCIO from custom config file
+        setWasmDirectory(wasmDir);
+        await initOCIO();
+        const processor = new OCIOProcessor();
+
+        if (!processor.initFromFile(configPath)) {
+            throw new Error(`Failed to load OCIO config: ${processor.getLastError()}`);
+        }
+
+        const colorSpaces = processor.getColorSpaces();
+        const displays = processor.getDisplays();
+        const displayViewMap: Record<string, string[]> = {};
+        for (const display of displays) {
+            displayViewMap[display] = processor.getViews(display);
+        }
+
+        // Filter scene-referred color spaces for working CS dropdown
+        const sceneReferredSpaces = colorSpaces.filter(cs => processor.isSceneReferred(cs));
+        dctlState.customColorSpaces = sceneReferredSpaces;
+
+        // Set working color space to first scene-referred space
+        if (sceneReferredSpaces.length > 0 && !sceneReferredSpaces.includes(dctlState.workingColorSpace)) {
+            dctlState.workingColorSpace = sceneReferredSpaces[0];
+        }
+
+        // Auto-detect source color space: use first color space from config, or 'reference'
+        // In custom mode, colorSpace from chromaticities may not match config names
+        const configSource = colorSpaces[0] || colorSpace;
+        processor.dispose();
+        perf.lap('Initialize custom OCIO');
+
+        // Select defaults
+        const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
+        const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
+
+        this.currentOcioState = { source: configSource, display: defaultDisplay, view: defaultView };
+
+        // Extract and build compute shader via custom OCIO pipeline
+        const extractResult = extractCustomOcioShaders(configPath, {
+            sourceColorSpace: configSource,
+            workingColorSpace: dctlState.workingColorSpace,
+            display: defaultDisplay,
+            view: defaultView,
+        });
+
+        if (!extractResult.success) {
+            throw new Error(`Custom OCIO shader extraction failed: ${extractResult.error}`);
+        }
+        perf.lap('Extract custom OCIO shaders');
+
+        const extensionPath = this.context.extensionPath;
+        const computeResult = await buildCustomOcioComputeShader(extensionPath, extractResult);
+
+        if (!computeResult.success) {
+            throw new Error(`Custom OCIO compute shader failed: ${computeResult.error}`);
+        }
+        perf.lap('Build custom OCIO compute shader');
+
+        writeLog(`[Custom OCIO] Compute shader: ${computeResult.computeWgsl.length} chars, textures: 2D=${computeResult.textures.length}, 3D=${computeResult.textures3D.length}`);
+
+        // Send image data with custom OCIO shader
+        webview.postMessage({
+            type: 'loadImage',
+            data: {
+                width: imageData.width,
+                height: imageData.height,
+                channels: imageData.channels.length,
+                buffer: imageData.pixels.buffer,
+                byteOffset: imageData.pixels.byteOffset,
+                byteLength: imageData.pixels.byteLength,
+                colorSpace: configSource,
+                colorSpaceDetected,
+                compression: imageData.compressionName,
+                bitDepth: imageData.pixelTypeName,
+                colorSpaces,
+                displays,
+                defaultDisplay,
+                defaultView,
+                displayViewMap,
+                pipelineMode: 'custom-ocio',
+                customWorkingColorSpaces: sceneReferredSpaces,
+                // No GLSL fragment shader in custom OCIO mode
+                shaderInfo: {
+                    shaderText: '',
+                    textures: [],
+                    textures3D: [],
+                    uniforms: [],
+                },
+                // Provide compute shader via dctlComputeShaderInfo path
+                wgslShaderInfo: {
+                    wgslCode: '',
+                    computeWgslCode: '',
+                    textures: computeResult.textures,
+                    textures3D: computeResult.textures3D,
+                    bindings: computeResult.bindings,
+                    dctlComputeShaderInfo: {
+                        computeWgsl: computeResult.computeWgsl,
+                        dctlFunctionWgsl: '',
+                        ocioFunctionWgsl: '',
+                        paramMapping: [],
+                        uniformBufferBinding: 0,
+                        textures: computeResult.textures,
+                        textures3D: computeResult.textures3D,
+                        bindings: computeResult.bindings,
+                        hasDctl: false,
+                        success: true,
+                    },
+                },
+            },
+        });
     }
 
     private async updateDisplayTransform(
@@ -991,7 +1151,13 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             return;
         }
 
-        // No DCTL active - build OCIO-only shader
+        // Custom OCIO mode: rebuild compute shader with new display/view
+        if (dctlState?.pipelineMode === 'custom-ocio' && dctlState.ocioConfigPath) {
+            await this.rebuildCustomOcioShader(panel, source, display, view);
+            return;
+        }
+
+        // No DCTL active - build OCIO-only shader (ACES mode)
         try {
             await initOCIO();
             const processor = new OCIOProcessor();
@@ -1076,9 +1242,11 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             }
 
             // Create DctlInfo for Rust compiler path (no transpilation needed)
+            // In custom OCIO mode, workingColorSpace may be a dynamic string;
+            // cast is safe because actual CS conversion is via OCIO shaders, not hardcoded matrices.
             const dctlInfo = createDctlInfo(
                 preprocessResult.expandedSource,
-                state.workingColorSpace,
+                state.workingColorSpace as import('@dctl-workbench/core').DctlColorSpace,
                 preprocessResult.params,
                 filePath
             );
@@ -1169,7 +1337,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
 
     private async handleChangeDctlColorSpace(
         panel: vscode.WebviewPanel,
-        colorSpace: 'ACES2065-1' | 'ACEScg' | 'ACEScc' | 'ACEScct' | 'linear_sRGB'
+        colorSpace: string
     ): Promise<void> {
         const state = this.dctlStates.get(panel);
         if (!state) return;
@@ -1211,9 +1379,120 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         }
     }
 
+    /**
+     * Rebuild compute shader for custom OCIO mode (with optional DCTL).
+     */
+    private async rebuildCustomOcioShader(
+        panel: vscode.WebviewPanel,
+        source: string,
+        display: string,
+        view: string,
+    ): Promise<void> {
+        const dctlState = this.dctlStates.get(panel);
+        if (!dctlState?.ocioConfigPath) return;
+
+        try {
+            const configPath = dctlState.ocioConfigPath;
+            const extensionPath = this.context.extensionPath;
+
+            // Extract custom OCIO shaders
+            const extractResult = extractCustomOcioShaders(configPath, {
+                sourceColorSpace: source,
+                workingColorSpace: dctlState.workingColorSpace,
+                display,
+                view,
+            });
+
+            if (!extractResult.success) {
+                writeLog(`[Custom OCIO] Shader extraction failed: ${extractResult.error}`);
+                panel.webview.postMessage({
+                    type: 'error',
+                    message: `Custom OCIO shader extraction failed: ${extractResult.error}`,
+                });
+                return;
+            }
+
+            // Build compute shader (with DCTL if loaded)
+            let dctlOptions: import('../shader').CustomOcioDctlOptions | undefined;
+            if (dctlState.enabled && dctlState.filePath) {
+                const rawDctlSource = fs.readFileSync(dctlState.filePath, 'utf-8');
+                const preprocessResult = await preprocessDctlSource(rawDctlSource, dctlState.filePath);
+                if (preprocessResult.success) {
+                    dctlOptions = {
+                        dctlSource: rawDctlSource,
+                        params: preprocessResult.params,
+                        useUniformBuffer: dctlState.useUniformBuffer,
+                    };
+                }
+            }
+
+            const computeResult = await buildCustomOcioComputeShader(
+                extensionPath, extractResult, dctlOptions
+            );
+
+            if (!computeResult.success) {
+                writeLog(`[Custom OCIO] Compute shader failed: ${computeResult.error}`);
+                panel.webview.postMessage({
+                    type: 'error',
+                    message: `Custom OCIO compute shader failed: ${computeResult.error}`,
+                });
+                return;
+            }
+
+            writeLog(`[Custom OCIO] Shader rebuilt: hasDctl=${computeResult.hasDctl}, WGSL=${computeResult.computeWgsl.length} chars`);
+
+            // Send updated shader to webview
+            panel.webview.postMessage({
+                type: 'updateShader',
+                shaderInfo: {
+                    shaderText: '',
+                    textures: [],
+                    textures3D: [],
+                    uniforms: [],
+                },
+                wgslShaderInfo: {
+                    wgslCode: '',
+                    computeWgslCode: '',
+                    textures: computeResult.textures,
+                    textures3D: computeResult.textures3D,
+                    bindings: computeResult.bindings,
+                    paramMapping: computeResult.paramMapping.length > 0 ? computeResult.paramMapping : undefined,
+                    useUniformBuffer: computeResult.hasDctl && dctlState.useUniformBuffer,
+                    uniformBufferBinding: computeResult.uniformBufferBinding,
+                    dctlComputeShaderInfo: {
+                        computeWgsl: computeResult.computeWgsl,
+                        dctlFunctionWgsl: '',
+                        ocioFunctionWgsl: '',
+                        paramMapping: computeResult.paramMapping,
+                        uniformBufferBinding: computeResult.uniformBufferBinding,
+                        textures: computeResult.textures,
+                        textures3D: computeResult.textures3D,
+                        bindings: computeResult.bindings,
+                        hasDctl: computeResult.hasDctl,
+                        success: true,
+                    },
+                },
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            writeLog(`[Custom OCIO] Shader rebuild error: ${message}`);
+        }
+    }
+
     private async rebuildShaderWithDctl(panel: vscode.WebviewPanel): Promise<void> {
         const state = this.dctlStates.get(panel);
         if (!state || !this.currentOcioState) return;
+
+        // Delegate to custom OCIO handler in custom mode
+        if (state.pipelineMode === 'custom-ocio' && state.ocioConfigPath) {
+            await this.rebuildCustomOcioShader(
+                panel,
+                this.currentOcioState.source,
+                this.currentOcioState.display,
+                this.currentOcioState.view,
+            );
+            return;
+        }
 
         try {
             // Get OCIO shader
@@ -1244,7 +1523,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 if (preprocessResult.success) {
                     dctlShaderInfo = createDctlInfo(
                         preprocessResult.expandedSource,
-                        state.workingColorSpace,
+                        state.workingColorSpace as import('@dctl-workbench/core').DctlColorSpace,
                         preprocessResult.params,
                         state.filePath ?? undefined
                     );

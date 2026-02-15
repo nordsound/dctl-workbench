@@ -1,5 +1,7 @@
 import * as assert from 'assert';
-import { parseCompressionSetting, parseWorkingColorSpace, VALID_COLOR_SPACES } from '../../editor/settings-helpers';
+import * as path from 'path';
+import * as fs from 'fs';
+import { parseCompressionSetting, parseWorkingColorSpace, parseOcioConfigPath, determinePipelineMode, VALID_COLOR_SPACES } from '../../editor/settings-helpers';
 
 describe('Settings Configuration', () => {
     describe('parseCompressionSetting', () => {
@@ -90,6 +92,39 @@ describe('Settings Configuration', () => {
             assert.ok(VALID_COLOR_SPACES.includes('ACEScc'));
             assert.ok(VALID_COLOR_SPACES.includes('ACEScct'));
             assert.ok(VALID_COLOR_SPACES.includes('linear_sRGB'));
+        });
+    });
+
+    describe('parseOcioConfigPath', () => {
+        it('should return null for empty string', () => {
+            assert.strictEqual(parseOcioConfigPath(''), null);
+        });
+
+        it('should return null for whitespace-only string', () => {
+            assert.strictEqual(parseOcioConfigPath('   '), null);
+        });
+
+        it('should return null for non-existent path', () => {
+            assert.strictEqual(parseOcioConfigPath('/nonexistent/path/config.ocio'), null);
+        });
+
+        it('should return resolved path for existing file', () => {
+            // Use package.json as a known-existing file
+            const existingFile = path.resolve(__dirname, '..', '..', '..', 'package.json');
+            if (fs.existsSync(existingFile)) {
+                const result = parseOcioConfigPath(existingFile);
+                assert.strictEqual(result, existingFile);
+            }
+        });
+    });
+
+    describe('determinePipelineMode', () => {
+        it('should return aces when ocioConfigPath is null', () => {
+            assert.strictEqual(determinePipelineMode(null), 'aces');
+        });
+
+        it('should return custom-ocio when ocioConfigPath is set', () => {
+            assert.strictEqual(determinePipelineMode('/some/path/config.ocio'), 'custom-ocio');
         });
     });
 });

@@ -3,9 +3,14 @@
  * to internal types. Kept as pure functions for testability.
  */
 
+import * as path from 'path';
+import * as fs from 'fs';
 import type { DctlColorSpace } from '@dctl-workbench/core';
 
-/** All valid DctlColorSpace values */
+/** Pipeline mode: built-in ACES or custom OCIO config */
+export type PipelineMode = 'aces' | 'custom-ocio';
+
+/** All valid DctlColorSpace values (ACES mode) */
 export const VALID_COLOR_SPACES: DctlColorSpace[] = [
     'ACES2065-1',
     'ACEScg',
@@ -47,4 +52,26 @@ export function parseWorkingColorSpace(value: string): DctlColorSpace {
         return value as DctlColorSpace;
     }
     return 'ACEScct';
+}
+
+/**
+ * Parse the custom OCIO config path setting.
+ * Returns null if the path is empty or the file doesn't exist.
+ */
+export function parseOcioConfigPath(value: string): string | null {
+    if (!value || value.trim() === '') {
+        return null;
+    }
+    const resolved = path.resolve(value);
+    if (!fs.existsSync(resolved)) {
+        return null;
+    }
+    return resolved;
+}
+
+/**
+ * Determine the pipeline mode based on the OCIO config path setting.
+ */
+export function determinePipelineMode(ocioConfigPath: string | null): PipelineMode {
+    return ocioConfigPath ? 'custom-ocio' : 'aces';
 }

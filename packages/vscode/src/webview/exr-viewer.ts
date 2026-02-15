@@ -109,6 +109,8 @@ interface WgslShaderInfo {
 
 type DctlColorSpace = 'ACES2065-1' | 'ACEScg' | 'ACEScc' | 'ACEScct' | 'linear_sRGB';
 
+type PipelineMode = 'aces' | 'custom-ocio';
+
 interface ExrImageData {
     width: number;
     height: number;
@@ -131,6 +133,10 @@ interface ExrImageData {
     compression?: string;
     // EXR pixel bit depth
     bitDepth?: string;
+    // Pipeline mode: 'aces' (default) or 'custom-ocio'
+    pipelineMode?: PipelineMode;
+    // Scene-referred color spaces from custom OCIO config (for working CS dropdown)
+    customWorkingColorSpaces?: string[];
 }
 
 // Reconstructed pixel data for reading
@@ -255,8 +261,11 @@ let dctlLoaded = false;
 let dctlParams: DctlParam[] = [];
 let openDctlFiles: { path: string; name: string }[] = [];
 let dctlParamValues: Record<string, DctlParamValue> = {};
-let dctlWorkingColorSpace: DctlColorSpace = 'ACEScg';
+let dctlWorkingColorSpace: string = 'ACEScg';
 let dctlControlsManager: DctlControlsManager | null = null;
+
+// Pipeline mode state
+let currentPipelineMode: PipelineMode = 'aces';
 
 // Renderer mode
 type RendererMode = 'webgpu' | 'webgl2';
@@ -498,13 +507,26 @@ window.addEventListener('message', (event) => {
 
 async function loadImage(data: ExrImageData): Promise<void> {
     try {
-        log(`loadImage: ${data.width}x${data.height}, ${data.channels}ch, colorSpace=${data.colorSpace}, detected=${data.colorSpaceDetected}, renderer=${rendererMode}`);
+        log(`loadImage: ${data.width}x${data.height}, ${data.channels}ch, colorSpace=${data.colorSpace}, detected=${data.colorSpaceDetected}, renderer=${rendererMode}, pipelineMode=${data.pipelineMode || 'aces'}`);
 
         currentImage = data;
+        currentPipelineMode = data.pipelineMode || 'aces';
 
         // Update UI
         populateSources(data.colorSpaces, data.colorSpace);
         populateDisplays(data.displays, data.displayViewMap, data.defaultDisplay, data.defaultView);
+
+        // Update working color space dropdown for custom OCIO mode
+        if (currentPipelineMode === 'custom-ocio' && data.customWorkingColorSpaces) {
+            populateCustomWorkingColorSpaces(data.customWorkingColorSpaces);
+            // Hide RGC controls in custom mode
+            const rgcContainer = document.querySelector('.dctl-rgc') as HTMLElement;
+            if (rgcContainer) rgcContainer.style.display = 'none';
+        } else {
+            // Show RGC controls in ACES mode
+            const rgcContainer = document.querySelector('.dctl-rgc') as HTMLElement;
+            if (rgcContainer) rgcContainer.style.display = '';
+        }
         imageInfo.textContent = `${data.width} x ${data.height}`;
         colorSpaceInfo.textContent = data.colorSpaceDetected
             ? `${data.colorSpace} (detected)`
@@ -1809,11 +1831,28 @@ function onRgcPeakLuminanceChange(): void {
 }
 
 function onDctlColorspaceChange(): void {
-    dctlWorkingColorSpace = dctlColorspaceSelect.value as DctlColorSpace;
+    dctlWorkingColorSpace = dctlColorspaceSelect.value;
     vscode.postMessage({
         type: 'changeDctlColorSpace',
         colorSpace: dctlWorkingColorSpace,
     });
+}
+
+/**
+ * Populate the working color space dropdown with custom OCIO config color spaces.
+ */
+function populateCustomWorkingColorSpaces(colorSpaces: string[]): void {
+    dctlColorspaceSelect.innerHTML = '';
+    for (const cs of colorSpaces) {
+        const option = document.createElement('option');
+        option.value = cs;
+        option.textContent = cs;
+        dctlColorspaceSelect.appendChild(option);
+    }
+    if (colorSpaces.length > 0) {
+        dctlColorspaceSelect.value = colorSpaces[0];
+        dctlWorkingColorSpace = colorSpaces[0];
+    }
 }
 
 interface DctlLoadData {
