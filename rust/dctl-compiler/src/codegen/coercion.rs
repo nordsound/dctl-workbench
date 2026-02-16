@@ -6,6 +6,7 @@
 //! - scalar → vector splatting
 //! - signed/unsigned int coercion
 //! - int → bool coercion
+//! - bool → int coercion
 
 use super::naga_module::{FunctionContext, NagaModuleGenerator};
 use crate::semantic::{DctlType, ScalarType};
@@ -379,6 +380,30 @@ impl NagaModuleGenerator {
                 Span::UNDEFINED,
             );
             (bool_expr, DctlType::Bool)
+        } else if left_is_int && matches!(rt, DctlType::Bool) {
+            // Bool to int coercion (e.g., int h = (comparison_expr))
+            // Convert bool to int: select(0i, 1i, condition)
+            let zero = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(0)),
+                Span::UNDEFINED,
+            );
+            let one = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(1)),
+                Span::UNDEFINED,
+            );
+            let select_expr = ctx.expressions.append(
+                NagaExpr::Select {
+                    condition: value,
+                    accept: one,
+                    reject: zero,
+                },
+                Span::UNDEFINED,
+            );
+            block.push(
+                NagaStmt::Emit(naga::Range::new_from_bounds(select_expr, select_expr)),
+                Span::UNDEFINED,
+            );
+            (select_expr, DctlType::Int)
         } else if matches!(lt, DctlType::UInt) && matches!(rt, DctlType::Int) {
             // Int to UInt coercion (e.g., unsigned int j; j = some_int_value)
             let cast = ctx.expressions.append(
@@ -507,6 +532,25 @@ impl NagaModuleGenerator {
                 Span::UNDEFINED,
             );
             (bool_expr, DctlType::Bool)
+        } else if left_is_int && matches!(rt, DctlType::Bool) {
+            // Bool to int coercion: select(0i, 1i, condition)
+            let zero = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(0)),
+                Span::UNDEFINED,
+            );
+            let one = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(1)),
+                Span::UNDEFINED,
+            );
+            let select_expr = ctx.expressions.append(
+                NagaExpr::Select {
+                    condition: value,
+                    accept: one,
+                    reject: zero,
+                },
+                Span::UNDEFINED,
+            );
+            (select_expr, DctlType::Int)
         } else if matches!(lt, DctlType::UInt) && matches!(rt, DctlType::Int) {
             // Int to UInt coercion
             let cast = ctx.expressions.append(

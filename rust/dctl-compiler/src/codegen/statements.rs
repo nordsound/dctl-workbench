@@ -881,6 +881,35 @@ impl NagaModuleGenerator {
                             ret_val = cast;
                         }
 
+                        // Check for bool → int coercion (e.g., return (h || v) in int-returning function)
+                        let actual_is_bool = matches!(expr_type, Some(DctlType::Bool));
+                        if expected_is_int && actual_is_bool {
+                            let zero = ctx.expressions.append(
+                                NagaExpr::Literal(Literal::I32(0)),
+                                Span::UNDEFINED,
+                            );
+                            let one = ctx.expressions.append(
+                                NagaExpr::Literal(Literal::I32(1)),
+                                Span::UNDEFINED,
+                            );
+                            let select_expr = ctx.expressions.append(
+                                NagaExpr::Select {
+                                    condition: ret_val,
+                                    accept: one,
+                                    reject: zero,
+                                },
+                                Span::UNDEFINED,
+                            );
+                            block.push(
+                                NagaStmt::Emit(naga::Range::new_from_bounds(
+                                    select_expr,
+                                    select_expr,
+                                )),
+                                Span::UNDEFINED,
+                            );
+                            ret_val = select_expr;
+                        }
+
                         // Check for scalar → vector coercion
                         let actual_is_scalar = matches!(
                             expr_type,

@@ -810,6 +810,60 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+suite('DCTL Compiler Error Tests', () => {
+
+    test('bool-to-int assignment should not produce DCTL010 InvalidStoreTypes', async function () {
+        this.timeout(30000);
+
+        // In C/DCTL, comparison results (bool) can be assigned to int variables:
+        //   int h = (dy <= thickUV && dx <= sizeUV);
+        // WGSL requires explicit select(0i, 1i, condition) conversion.
+        // Without bool→int coercion, the Naga validator reports InvalidStoreTypes.
+        const source =
+`__DEVICE__ inline int drawPlusUV(float ux, float uy, float cx, float cy, float sizeUV, float thickUV) {
+    float dx = _fabs(ux - cx);
+    float dy = _fabs(uy - cy);
+    int h = (dy <= thickUV && dx <= sizeUV);
+    int v = (dx <= thickUV && dy <= sizeUV);
+    return (h || v);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float ux = (float)p_X / (float)p_Width;
+    float uy = (float)p_Y / (float)p_Height;
+    int marker = drawPlusUV(ux, uy, 0.5f, 0.5f, 0.05f, 0.005f);
+    float val = (float)marker;
+    return make_float3(p_R + val, p_G + val, p_B + val);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have DCTL010 (WGSL generation failed / InvalidStoreTypes)
+        const dctl010Errors = diagnostics.filter(d => d.code === 'DCTL010');
+        assert.strictEqual(
+            dctl010Errors.length,
+            0,
+            `Bool-to-int assignment should not produce DCTL010 InvalidStoreTypes. ` +
+            `Got: ${dctl010Errors.map(d => d.message).join('; ')}`
+        );
+
+        // Should NOT have any errors at all
+        const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+        assert.strictEqual(
+            errors.length,
+            0,
+            `Should have no errors for bool-to-int coercion. ` +
+            `Got: ${errors.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+    });
+});
+
 suite('DCTL Include File Diagnostics Tests', () => {
 
     test('syntax error in included header should be reported on header file URI', async function () {
