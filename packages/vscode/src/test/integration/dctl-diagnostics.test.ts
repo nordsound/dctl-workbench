@@ -722,6 +722,94 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+suite('DCTL Semantic Error Tests', () => {
+
+    test('UI param used in helper function should produce SEM018 error', async function () {
+        this.timeout(30000);
+
+        // Line 1: DEFINE_UI_PARAMS(gain, ...)
+        // Line 2: (empty)
+        // Line 3: __DEVICE__ float applyGain(float x) {
+        // Line 4:     return x * gain;                 <-- SEM018 expected here
+        // Line 5: }
+        // Line 6: (empty)
+        // Line 7: __DEVICE__ float3 transform(...) {
+        // Line 8:     return make_float3(applyGain(p_R), p_G, p_B);
+        // Line 9: }
+        const source =
+`DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float applyGain(float x) {
+    return x * gain;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(applyGain(p_R), p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message} (${d.severity})`);
+        }
+
+        // Should have SEM018 error for UI param used in helper function
+        const sem018Errors = diagnostics.filter(d => d.code === 'SEM018');
+        assert.ok(
+            sem018Errors.length > 0,
+            `Should report SEM018 for UI param 'gain' used in helper function 'applyGain'. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        const gainError = sem018Errors.find(d => d.message.includes('gain'));
+        assert.ok(gainError, 'SEM018 should mention the parameter name');
+        assert.ok(gainError!.message.includes('applyGain'), 'SEM018 should mention the helper function name');
+
+        // Should be an Error severity (not Warning)
+        assert.strictEqual(
+            gainError!.severity,
+            vscode.DiagnosticSeverity.Error,
+            'SEM018 should be Error severity'
+        );
+
+        // Should be on line 4 (0-indexed: 3) where "return x * gain;" is
+        assert.strictEqual(
+            gainError!.range.start.line,
+            3,
+            `SEM018 should be on line 4 (0-indexed: 3), got line ${gainError!.range.start.line + 1}`
+        );
+    });
+
+    test('UI param used in transform should NOT produce SEM018', async function () {
+        this.timeout(30000);
+
+        const source =
+`DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        const sem018 = diagnostics.find(d => d.code === 'SEM018');
+        assert.strictEqual(
+            sem018,
+            undefined,
+            `UI param used in transform should NOT trigger SEM018. ` +
+            `Got: ${diagnostics.filter(d => d.code === 'SEM018').map(d => d.message).join('; ')}`
+        );
+    });
+});
+
 suite('DCTL Include File Diagnostics Tests', () => {
 
     test('syntax error in included header should be reported on header file URI', async function () {

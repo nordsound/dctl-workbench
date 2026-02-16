@@ -81,7 +81,9 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
 
         // Step 3: Semantic analysis
         const analyzer = new SemanticAnalyzer();
-        const analysisResult = analyzer.analyze(parseResult.ast);
+        const analysisResult = analyzer.analyze(parseResult.ast, {
+            uiParamNames: preprocessed.uiParamNames,
+        });
         const { symbolTable } = analysisResult;
 
         // Step 4: Extract user-defined symbols
@@ -90,12 +92,12 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
         // Step 5: Build variable type map from AST (params + locals + globals)
         const variableTypes = collectVariableTypes(parseResult.ast, symbolTable, lineOffset);
 
-        // Filter warnings from preprocessor header and map line numbers to original source.
+        // Filter warnings/errors from preprocessor header and map line numbers to original source.
         // headerLineCount is DCTL_TYPE_DEFINITIONS.split('\n').length (e.g. 82), but the actual
         // number of header lines is headerLineCount - 1 (e.g. 81) because the trailing '\n'
         // adds an extra empty entry in the split.
         // User code starts at preprocessed line == headerLineCount (e.g. line 82).
-        // So: keep warnings where line >= lineOffset, and map: originalLine = line - lineOffset + 1
+        // So: keep items where line >= lineOffset, and map: originalLine = line - lineOffset + 1
         const warnings = analysisResult.warnings
             .filter(w => w.line >= lineOffset)
             .map(w => ({
@@ -103,10 +105,17 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
                 line: w.line - lineOffset + 1,
             }));
 
+        const errors = analysisResult.errors
+            .filter(e => e.line >= lineOffset)
+            .map(e => ({
+                ...e,
+                line: e.line - lineOffset + 1,
+            }));
+
         return {
             symbolTable,
             ast: parseResult.ast,
-            errors: analysisResult.errors,
+            errors,
             warnings,
             symbols,
             variableTypes,
