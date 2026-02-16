@@ -13,6 +13,7 @@ import {
     initOCIO,
     OCIOProcessor,
     isOCIOInitialized,
+    validateOcioConfig,
 } from '../../ocio/index';
 
 const WASM_DIR = path.resolve(__dirname, '..', '..', '..', '..', '..');
@@ -150,6 +151,118 @@ describe('OCIO Config Loading', function () {
             );
             assert.equal(result, true, `Failed: ${processor.getLastError()}`);
             assert.equal(processor.hasTransform(), true);
+        });
+    });
+
+    describe('validateOcioConfig', () => {
+        const validConfigPath = resolveFixture('test-ocio-config', 'config.ocio');
+
+        it('should return valid for a well-formed config', function () {
+            if (!validConfigPath) return this.skip();
+            const result = validateOcioConfig(validConfigPath);
+            assert.equal(result.valid, true, `Expected valid but got errors: ${result.errors.join(', ')}`);
+            assert.equal(result.errors.length, 0);
+        });
+
+        it('should return config info (colorSpaces, displays, views)', function () {
+            if (!validConfigPath) return this.skip();
+            const result = validateOcioConfig(validConfigPath);
+            assert.ok(result.colorSpaces.length > 0, 'Should have color spaces');
+            assert.ok(result.displays.length > 0, 'Should have displays');
+            assert.ok(result.sceneReferredSpaces.length > 0, 'Should have scene-referred spaces');
+        });
+
+        it('should fail for non-existent file', () => {
+            const result = validateOcioConfig('/nonexistent/config.ocio');
+            assert.equal(result.valid, false);
+            assert.ok(result.errors.some(e => e.includes('not found') || e.includes('does not exist')));
+        });
+
+        it('should fail for non-.ocio extension', function () {
+            // Use package.json as a real file with wrong extension
+            const packageJson = path.resolve(__dirname, '..', '..', '..', '..', '..', 'package.json');
+            if (!fs.existsSync(packageJson)) return this.skip();
+            const result = validateOcioConfig(packageJson);
+            assert.equal(result.valid, false);
+            assert.ok(result.errors.some(e => e.includes('.ocio')));
+        });
+
+        it('should fail for config with no displays', () => {
+            const yaml = `
+ocio_profile_version: 2.1
+environment: {}
+roles:
+  default: raw
+displays: {}
+colorspaces:
+  - !<ColorSpace>
+    name: raw
+    isdata: true
+`;
+            const result = validateOcioConfig(yaml, { fromString: true });
+            assert.equal(result.valid, false);
+            assert.ok(result.errors.some(e => e.includes('display')));
+        });
+
+        it('should fail for config with no scene-referred color spaces', () => {
+            // All spaces under display_colorspaces are display-referred in OCIO v2
+            const yaml = `
+ocio_profile_version: 2.1
+environment: {}
+roles:
+  default: display_space
+displays:
+  sRGB:
+    - !<View> {name: Raw, colorspace: display_space}
+display_colorspaces:
+  - !<ColorSpace>
+    name: display_space
+    isdata: false
+`;
+            const result = validateOcioConfig(yaml, { fromString: true });
+            assert.equal(result.valid, false);
+            assert.ok(result.errors.some(e => e.includes('scene-referred')));
+        });
+
+        it('should warn about missing LUT files referenced in config', function () {
+            if (!validConfigPath) return this.skip();
+            // Create a temp config referencing a non-existent LUT
+            const tmpDir = path.join(require('os').tmpdir(), 'dctl-test-ocio-validate');
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const tmpConfig = path.join(tmpDir, 'bad_lut.ocio');
+            fs.writeFileSync(tmpConfig, `
+ocio_profile_version: 2.1
+environment: {}
+search_path: luts
+roles:
+  default: raw
+  scene_linear: working
+displays:
+  sRGB:
+    - !<View> {name: Raw, colorspace: raw}
+    - !<View> {name: Film, colorspace: film}
+colorspaces:
+  - !<ColorSpace>
+    name: raw
+    isdata: true
+  - !<ColorSpace>
+    name: working
+    family: Scene
+    isdata: false
+    to_scene_reference: !<MatrixTransform> {matrix: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]}
+  - !<ColorSpace>
+    name: film
+    family: Display
+    isdata: false
+    from_scene_reference: !<FileTransform> {src: nonexistent_lut.cube, interpolation: linear}
+`);
+            try {
+                const result = validateOcioConfig(tmpConfig);
+                assert.ok(result.warnings.length > 0, 'Should have warnings about missing LUTs');
+                assert.ok(result.warnings.some(w => w.includes('nonexistent_lut.cube')));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
         });
     });
 

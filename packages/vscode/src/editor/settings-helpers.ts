@@ -56,13 +56,16 @@ export function parseWorkingColorSpace(value: string): DctlColorSpace {
 
 /**
  * Parse the custom OCIO config path setting.
- * Returns null if the path is empty or the file doesn't exist.
+ * Returns null if the path is empty, doesn't have .ocio extension, or the file doesn't exist.
  */
 export function parseOcioConfigPath(value: string): string | null {
     if (!value || value.trim() === '') {
         return null;
     }
     const resolved = path.resolve(value);
+    if (path.extname(resolved).toLowerCase() !== '.ocio') {
+        return null;
+    }
     if (!fs.existsSync(resolved)) {
         return null;
     }

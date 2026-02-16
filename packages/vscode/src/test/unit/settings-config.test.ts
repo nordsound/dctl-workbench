@@ -108,12 +108,29 @@ describe('Settings Configuration', () => {
             assert.strictEqual(parseOcioConfigPath('/nonexistent/path/config.ocio'), null);
         });
 
-        it('should return resolved path for existing file', () => {
-            // Use package.json as a known-existing file
+        it('should return resolved path for existing .ocio file', () => {
+            const fixtureConfig = path.resolve(__dirname, '..', '..', '..', '..', '..', 'test', 'fixtures', 'test-ocio-config', 'config.ocio');
+            if (fs.existsSync(fixtureConfig)) {
+                const result = parseOcioConfigPath(fixtureConfig);
+                assert.strictEqual(result, fixtureConfig);
+            }
+        });
+
+        it('should reject non-.ocio file extension', () => {
+            // package.json exists but is not a .ocio file
             const existingFile = path.resolve(__dirname, '..', '..', '..', 'package.json');
             if (fs.existsSync(existingFile)) {
                 const result = parseOcioConfigPath(existingFile);
-                assert.strictEqual(result, existingFile);
+                assert.strictEqual(result, null, 'Should reject non-.ocio files');
+            }
+        });
+
+        it('should accept .ocio file extension', () => {
+            // Use the test fixture config.ocio
+            const fixtureConfig = path.resolve(__dirname, '..', '..', '..', '..', '..', 'test', 'fixtures', 'test-ocio-config', 'config.ocio');
+            if (fs.existsSync(fixtureConfig)) {
+                const result = parseOcioConfigPath(fixtureConfig);
+                assert.strictEqual(result, fixtureConfig, 'Should accept .ocio files');
             }
         });
     });

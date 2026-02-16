@@ -27,6 +27,7 @@ Built-in custom editor for OpenEXR files with DCTL integration:
 - **DCTL Live Preview** — Apply DCTL shaders to EXR images in real time
 - **Auto Preview** — Automatically updates the preview when you edit a DCTL file
 - **ACES Color Pipeline** — Working color spaces: ACES2065-1, ACEScg, ACEScc, ACEScct, Linear sRGB
+- **Custom OCIO Config** — Load your own `.ocio` config file with LUT support for non-ACES workflows
 - **Reference Gamut Compression** — ACES 2.0 RGC with configurable peak luminance
 - **GPU Accelerated** — WebGPU rendering with WebGL2 and CPU fallbacks
 - **EXR Export** — Export processed images with configurable compression (10 formats: lossless ZIP, PIZ, RLE, ZIPS and lossy PXR24, B44, B44A, DWAA, DWAB)
@@ -62,6 +63,7 @@ Type `dctl` in a `.dctl` file to see all available snippets.
 |---------|---------|-------------|
 | `defaultWorkingColorSpace` | `ACEScct` | Default working color space (can be changed per viewer) |
 | `defaultExportCompression` | `PIZ` | Default EXR export compression method |
+| `ocioConfigPath` | *(empty)* | Path to custom OCIO config file (`.ocio`). Leave empty for built-in ACES |
 
 **Editor** (`dctlWorkbench.editor.*`)
 
