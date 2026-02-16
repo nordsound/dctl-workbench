@@ -241,9 +241,24 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                     await this.checkNagaValidationAsync(source, filePath, diagnostics, includedFileDiagnostics);
                 }
 
-                // Semantic warnings (unused variables, unused functions)
+                // Semantic analysis (errors and warnings)
                 if (!hasSyntaxErrors) {
                     const analysis = analyzeDocument(source);
+                    for (const error of analysis.errors) {
+                        const errorLine = Math.max(0, error.line - 1);
+                        const range = new vscode.Range(
+                            errorLine, error.column - 1,
+                            errorLine, error.column + 10
+                        );
+                        const diagnostic = new vscode.Diagnostic(
+                            range,
+                            error.message,
+                            vscode.DiagnosticSeverity.Error
+                        );
+                        diagnostic.code = error.code;
+                        diagnostic.source = 'DCTL';
+                        diagnostics.push(diagnostic);
+                    }
                     for (const warning of analysis.warnings) {
                         const warningLine = Math.max(0, warning.line - 1);
                         const range = new vscode.Range(

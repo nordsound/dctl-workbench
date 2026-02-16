@@ -25,6 +25,8 @@ export interface PreprocessResult {
     headerLineCount: number;
     /** Original source for error mapping */
     originalSource: string;
+    /** Names of UI parameters defined via DEFINE_UI_PARAMS */
+    uiParamNames: string[];
 }
 
 /**
@@ -117,6 +119,9 @@ float determinant_f33(float3x3 m);
 // Count lines in the header
 const HEADER_LINE_COUNT = DCTL_TYPE_DEFINITIONS.split('\n').length;
 
+/** Accumulator for UI param names during preprocessing (reset per call) */
+let _collectedUiParamNames: string[] = [];
+
 /**
  * Convert DEFINE_UI_PARAMS macro to a variable declaration
  * Format: DEFINE_UI_PARAMS(name, label, type, default, ...)
@@ -132,6 +137,7 @@ function convertDefineUiParams(match: string, indent: string, args: string): str
 
     const varName = argList[0];
     const uiType = argList[2];
+    _collectedUiParamNames.push(varName);
 
     // Determine variable type based on UI type
     let varType = 'float';
@@ -547,6 +553,9 @@ function parseArguments(argsStr: string): string[] {
 export function preprocessDctl(source: string): PreprocessResult {
     let code = source;
 
+    // Reset UI param name collection
+    _collectedUiParamNames = [];
+
     // First, process C preprocessor #define macros
     code = processDefines(code);
 
@@ -566,6 +575,7 @@ export function preprocessDctl(source: string): PreprocessResult {
         code,
         headerLineCount: HEADER_LINE_COUNT,
         originalSource: source,
+        uiParamNames: [..._collectedUiParamNames],
     };
 }
 

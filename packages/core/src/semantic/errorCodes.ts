@@ -91,6 +91,11 @@ export const SEMANTIC_ERROR_CODES = {
         message: 'Non-void function must return a value',
         severity: 'error',
     },
+    SEM018: {
+        code: 'SEM018',
+        message: 'UI parameter used outside transform function',
+        severity: 'error',
+    },
 } as const;
 
 export type SemanticErrorCode = keyof typeof SEMANTIC_ERROR_CODES;

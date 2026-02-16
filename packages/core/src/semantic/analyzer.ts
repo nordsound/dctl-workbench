@@ -135,11 +135,16 @@ export class SemanticAnalyzer {
     private usedSymbols: Set<string> = new Set();
     private calledFunctions: Set<string> = new Set();
     private currentFunctionReturnType?: TypeInfo;
+    private currentFunctionName?: string;
+    private uiParamNames: Set<string> = new Set();
 
     /**
      * Analyze a DCTL module
+     * @param ast - The parsed AST
+     * @param options - Optional analysis options
+     * @param options.uiParamNames - Names of UI parameters from DEFINE_UI_PARAMS (from preprocessor)
      */
-    analyze(ast: ModuleNode): SemanticAnalysisResult {
+    analyze(ast: ModuleNode, options?: { uiParamNames?: string[] }): SemanticAnalysisResult {
         this.symbolTable = new SymbolTable();
         this.errors = [];
         this.warnings = [];
@@ -148,6 +153,8 @@ export class SemanticAnalyzer {
         this.usedSymbols = new Set();
         this.calledFunctions = new Set();
         this.currentFunctionReturnType = undefined;
+        this.currentFunctionName = undefined;
+        this.uiParamNames = new Set(options?.uiParamNames ?? []);
 
         // Pass 0: Collect UI parameters from macros (DEFINE_UI_PARAMS)
         this.collectUIParameters(ast);
@@ -212,9 +219,11 @@ export class SemanticAnalyzer {
                     loc: macro.loc || dummyLoc,
                     isConst: false,
                     isBuiltin: true, // Mark as builtin to skip unused warnings
+                    isUiParam: true,
                 };
 
                 this.symbolTable.defineGlobal(symbol);
+                this.uiParamNames.add(paramName);
             }
         }
     }
@@ -396,6 +405,7 @@ export class SemanticAnalyzer {
         const paramTypes = node.parameters.map(p => this.typeNodeToTypeInfo(p.type));
         const sig = this.symbolTable.lookupFunctionOverloadByTypes(node.name, paramTypes);
         this.currentFunctionReturnType = sig?.returnType;
+        this.currentFunctionName = node.name;
 
         // Enter function scope
         this.symbolTable.enterScope(`function:${node.name}`);
@@ -434,8 +444,9 @@ export class SemanticAnalyzer {
         // Exit function scope
         this.symbolTable.exitScope();
 
-        // Clear return type tracking
+        // Clear function tracking
         this.currentFunctionReturnType = undefined;
+        this.currentFunctionName = undefined;
     }
 
     // =========================================================================
@@ -762,6 +773,21 @@ export class SemanticAnalyzer {
         }
         // Mark symbol as used for unused variable detection
         this.usedSymbols.add(expr.name);
+
+        // Check if UI parameter is used outside the transform function
+        // DaVinci Resolve expands UI params as local variables inside transform(),
+        // so they are not accessible from helper functions.
+        if (this.uiParamNames.has(expr.name) && this.currentFunctionName && this.currentFunctionName !== 'transform') {
+            this.addError(
+                'SEM018',
+                `UI parameter '${expr.name}' used in helper function '${this.currentFunctionName}'. ` +
+                `DaVinci Resolve only makes UI parameters available inside the transform function. ` +
+                `Pass it as a function argument instead.`,
+                expr.loc,
+                expr.name
+            );
+        }
+
         return symbol.type;
     }
 

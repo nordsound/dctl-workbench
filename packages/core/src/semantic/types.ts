@@ -58,6 +58,8 @@ export interface Symbol {
     isPointer?: boolean;
     /** Whether this is a builtin symbol */
     isBuiltin?: boolean;
+    /** Whether this is a UI parameter (from DEFINE_UI_PARAMS) */
+    isUiParam?: boolean;
     /** Constant value for compile-time constants (e.g., enum values from COMBO_BOX) */
     constValue?: number | string;
 }

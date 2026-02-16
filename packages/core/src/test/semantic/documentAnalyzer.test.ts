@@ -577,6 +577,94 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+describe('analyzeDocument UI param scope errors', () => {
+    it('should error when UI param is used in a helper function (SEM018)', () => {
+        const source = `
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float applyGain(float x) {
+    return x * gain;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(applyGain(p_R), p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const e = result.errors.find(e => e.code === 'SEM018' && e.message.includes('gain'));
+        assert.ok(e, 'should have SEM018 error for UI param used in helper function');
+        assert.ok(e.message.includes('applyGain'), 'error should mention the helper function name');
+    });
+
+    it('should NOT error when UI param is used in transform function', () => {
+        const source = `
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R * gain, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const e = result.errors.find(e => e.code === 'SEM018');
+        assert.ok(!e, 'should NOT error about UI param used in transform');
+    });
+
+    it('should error for multiple UI params used in same helper function', () => {
+        const source = `
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(offset, Offset, DCTLUI_SLIDER_FLOAT, 0.0, -1.0, 1.0, 0.01)
+
+__DEVICE__ float adjustColor(float x) {
+    return x * gain + offset;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(adjustColor(p_R), adjustColor(p_G), adjustColor(p_B));
+}`;
+        const result = analyzeDocument(source);
+        const gainE = result.errors.find(e => e.code === 'SEM018' && e.message.includes('gain'));
+        const offsetE = result.errors.find(e => e.code === 'SEM018' && e.message.includes('offset'));
+        assert.ok(gainE, 'should error about gain in helper');
+        assert.ok(offsetE, 'should error about offset in helper');
+    });
+
+    it('should NOT error about COMBO_BOX enum constants in helper functions', () => {
+        const source = `
+DEFINE_UI_PARAMS(mode, Mode, DCTLUI_COMBO_BOX, 0, {linear, log}, {Linear, Log})
+
+__DEVICE__ float applyMode(float x, int m) {
+    if (m == linear) return x;
+    return _logf(x + 1.0f);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(applyMode(p_R, mode), p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        // 'linear' and 'log' are enum constants, not the UI param 'mode' itself
+        const linearE = result.errors.find(e => e.code === 'SEM018' && e.message.includes("'linear'"));
+        assert.ok(!linearE, 'should NOT error about COMBO_BOX enum constants in helper');
+        // But 'mode' used in transform is fine
+        const modeE = result.errors.find(e => e.code === 'SEM018' && e.message.includes("'mode'"));
+        assert.ok(!modeE, 'mode is used in transform, not in helper');
+    });
+
+    it('should error about COMBO_BOX selector variable used in helper', () => {
+        const source = `
+DEFINE_UI_PARAMS(mode, Mode, DCTLUI_COMBO_BOX, 0, {linear, log}, {Linear, Log})
+
+__DEVICE__ float applyMode(float x) {
+    if (mode == linear) return x;
+    return _logf(x + 1.0f);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(applyMode(p_R), p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const modeE = result.errors.find(e => e.code === 'SEM018' && e.message.includes("'mode'"));
+        assert.ok(modeE, 'should error about COMBO_BOX selector variable used in helper');
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
