@@ -558,6 +558,13 @@ export class OCIOProcessor {
 
         const mountpoint = '/ocio';
 
+        // Ensure clean mountpoint: try unmounting stale mounts from other processors
+        try {
+            this.module.FS.unmount(mountpoint);
+        } catch {
+            // No active mount — expected
+        }
+
         // Create mountpoint directory if it doesn't exist
         try {
             this.module.FS.stat(mountpoint);
