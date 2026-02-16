@@ -63,8 +63,11 @@ float4 make_float4(float x, float y, float z, float w);
 int2 make_int2(int x, int y);
 int3 make_int3(int x, int y, int z);
 int4 make_int4(int x, int y, int z, int w);
-float4 _tex2D(__TEXTURE2D__ tex, float x, float y);
+float _tex2D(__TEXTURE__ tex, int x, int y);
+float4 _tex2DVec4(__TEXTURE2D__ tex, float x, float y);
+float _tex2DVecN(__TEXTURE__ tex, int x, int y, int n);
 float4 _tex3D(__TEXTURE3D__ tex, float x, float y, float z);
+float4 _tex3DVec4(__TEXTURE3D__ tex, float x, float y, float z);
 
 // Math functions
 float _saturatef(float x);

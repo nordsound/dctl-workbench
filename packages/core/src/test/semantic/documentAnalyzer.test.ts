@@ -665,6 +665,39 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+describe('analyzeDocument texture function types', () => {
+    it('_tex2D should return float, not float4 (no SEM010 with make_float3)', () => {
+        // _tex2D reads a single channel from __TEXTURE__ and returns float.
+        // make_float3(float, float, float) should accept _tex2D results without type mismatch.
+        const source = `
+__DEVICE__ float3 pixelFromXY(__TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB, int p_X, int p_Y) {
+    return make_float3(_tex2D(p_TexR, p_X, p_Y), _tex2D(p_TexG, p_X, p_Y), _tex2D(p_TexB, p_X, p_Y));
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB) {
+    return pixelFromXY(p_TexR, p_TexG, p_TexB, p_X, p_Y);
+}`;
+        const result = analyzeDocument(source);
+        const typeMismatch = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!typeMismatch,
+            `_tex2D should return float, not float4. Got SEM010: ${typeMismatch?.message ?? 'none'}`);
+    });
+
+    it('_tex2D return value should be assignable to float variable', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB) {
+    float r = _tex2D(p_TexR, p_X, p_Y);
+    float g = _tex2D(p_TexG, p_X, p_Y);
+    float b = _tex2D(p_TexB, p_X, p_Y);
+    return make_float3(r, g, b);
+}`;
+        const result = analyzeDocument(source);
+        const typeMismatch = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!typeMismatch,
+            `_tex2D return value should be float. Got SEM010: ${typeMismatch?.message ?? 'none'}`);
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
