@@ -164,6 +164,29 @@ impl NagaModuleGenerator {
                 Span::UNDEFINED,
             );
             (bool_expr, Some(DctlType::Bool))
+        // Handle bool → int coercion (e.g., int h = (comparison_expr))
+        } else if matches!(&value_type, Some(DctlType::Bool)) && target_is_int {
+            let zero = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(0)),
+                Span::UNDEFINED,
+            );
+            let one = ctx.expressions.append(
+                NagaExpr::Literal(Literal::I32(1)),
+                Span::UNDEFINED,
+            );
+            let select_expr = ctx.expressions.append(
+                NagaExpr::Select {
+                    condition: value,
+                    accept: one,
+                    reject: zero,
+                },
+                Span::UNDEFINED,
+            );
+            block.push(
+                NagaStmt::Emit(naga::Range::new_from_bounds(select_expr, select_expr)),
+                Span::UNDEFINED,
+            );
+            (select_expr, Some(DctlType::Int))
         } else {
             (value, value_type.clone())
         };

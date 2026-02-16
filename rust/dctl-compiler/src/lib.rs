@@ -1528,4 +1528,48 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             "WGSL output should not be empty"
         );
     }
+
+    /// Test that bool-to-int coercion works in variable assignment
+    /// In C/DCTL, comparison results (bool) can be assigned to int variables:
+    ///   int h = (dy <= thickUV && dx <= sizeUV);
+    /// WGSL requires explicit conversion via select(0i, 1i, condition)
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_bool_to_int_coercion_in_assignment() {
+        let source = r#"
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float dx = _fabs(p_R - 0.5f);
+    float dy = _fabs(p_G - 0.5f);
+    float sizeUV = 0.1f;
+    float thickUV = 0.01f;
+
+    int h = (dy <= thickUV && dx <= sizeUV);
+    int v = (dx <= thickUV && dy <= sizeUV);
+    int result = (h || v);
+
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile failed: {:?}", result.err());
+
+        let compile_result = result.unwrap();
+        let all_errors: Vec<_> = compile_result
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for bool-to-int coercion, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
 }
