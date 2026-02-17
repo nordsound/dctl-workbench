@@ -698,6 +698,70 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTU
     });
 });
 
+describe('analyzeDocument vector function overloads', () => {
+    it('length(float2) should not produce SEM010', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float2 p = make_float2(p_R, p_G);
+    float d = length(p);
+    return make_float3(d, d, d);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `length(float2) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+
+    it('length(float4) should not produce SEM010', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float4 v = make_float4(p_R, p_G, p_B, 1.0f);
+    float d = length(v);
+    return make_float3(d, d, d);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `length(float4) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+
+    it('normalize(float2) should not produce SEM010', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float2 p = make_float2(p_R, p_G);
+    float2 n = normalize(p);
+    return make_float3(n.x, n.y, 0.0f);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `normalize(float2) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+
+    it('dot(float2, float2) should not produce SEM010', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float2 a = make_float2(p_R, p_G);
+    float2 b = make_float2(p_G, p_B);
+    float d = dot(a, b);
+    return make_float3(d, d, d);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `dot(float2, float2) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+
+    it('dot(float4, float4) should not produce SEM010', () => {
+        const source = `
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float4 a = make_float4(p_R, p_G, p_B, 1.0f);
+    float4 b = make_float4(p_B, p_G, p_R, 1.0f);
+    float d = dot(a, b);
+    return make_float3(d, d, d);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `dot(float4, float4) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
