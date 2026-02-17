@@ -760,6 +760,34 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         const sem010 = result.errors.find(e => e.code === 'SEM010');
         assert.ok(!sem010, `dot(float4, float4) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
     });
+
+    it('user-defined overloaded function should resolve correct overload with int-to-float coercion', () => {
+        // When MAX is defined as user functions (like in DCTL_Functions.h),
+        // MAX(float3, int) should resolve to MAX(float3, float) not MAX(float2, float)
+        const source = `
+__DEVICE__ float2 MAX(float2 in, float Min) {
+    return make_float2(_fmaxf(in.x, Min), _fmaxf(in.y, Min));
+}
+
+__DEVICE__ float3 MAX(float3 in, float Min) {
+    return make_float3(_fmaxf(in.x, Min), _fmaxf(in.y, Min), _fmaxf(in.z, Min));
+}
+
+__DEVICE__ float dBox(float3 p, float3 b) {
+    float3 d = make_float3(_fabs(p.x) - b.x, _fabs(p.y) - b.y, _fabs(p.z) - b.z);
+    return length(MAX(d, 0));
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float3 p = make_float3(p_R, p_G, p_B);
+    float3 b = make_float3(1.0f, 1.0f, 1.0f);
+    float v = dBox(p, b);
+    return make_float3(v, v, v);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `Should resolve MAX(float3, int) to MAX(float3, float) overload. Got: ${sem010?.message ?? 'none'}`);
+    });
 });
 
 describe('getMemberCompletions', () => {
