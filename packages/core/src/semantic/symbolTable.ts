@@ -214,6 +214,35 @@ export class SymbolTable {
         });
         if (exactMatch) return exactMatch;
 
+        // Compatible match: find overloads where types are compatible (e.g. int→float)
+        // Pick the one with the most exact argument type matches
+        const numericTypes = new Set(['int', 'uint', 'float', 'double', 'half', 'bool']);
+        let bestMatch: FunctionSignature | undefined;
+        let bestExactCount = -1;
+
+        for (const sig of sigs) {
+            if (sig.parameters.length !== paramTypes.length) continue;
+            let compatible = true;
+            let exactCount = 0;
+            for (let i = 0; i < sig.parameters.length; i++) {
+                const paramName = sig.parameters[i].type.name;
+                const argName = paramTypes[i].name;
+                if (paramName === argName) {
+                    exactCount++;
+                } else if (numericTypes.has(paramName) && numericTypes.has(argName)) {
+                    // Numeric types are compatible (int↔float, etc.)
+                } else {
+                    compatible = false;
+                    break;
+                }
+            }
+            if (compatible && exactCount > bestExactCount) {
+                bestExactCount = exactCount;
+                bestMatch = sig;
+            }
+        }
+        if (bestMatch) return bestMatch;
+
         // Fall back to count-based matching
         return this.lookupFunctionOverload(name, paramTypes.length);
     }
