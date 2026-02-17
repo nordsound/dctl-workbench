@@ -761,6 +761,25 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         assert.ok(!sem010, `dot(float4, float4) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
     });
 
+    it('_mix(float4, float4, float) should not produce SEM010', () => {
+        // _mix is element-wise: works on any vector type, not just float scalars.
+        // Type header declares float _mix(float, float, float) but the builtin
+        // registration should be preferred for element-wise inference.
+        const source = `
+__DEVICE__ float4 hash44(float4 p) {
+    return make_float4(p.x, p.y, p.z, p.w);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float4 h = make_float4(p_R, p_G, p_B, 1.0f);
+    float4 result = _mix(hash44(h), hash44(h), p_R);
+    return make_float3(result.x, result.y, result.z);
+}`;
+        const result = analyzeDocument(source);
+        const sem010 = result.errors.find(e => e.code === 'SEM010');
+        assert.ok(!sem010, `_mix(float4, float4, float) should not produce SEM010. Got: ${sem010?.message ?? 'none'}`);
+    });
+
     it('user-defined overloaded function should resolve correct overload with int-to-float coercion', () => {
         // When MAX is defined as user functions (like in DCTL_Functions.h),
         // MAX(float3, int) should resolve to MAX(float3, float) not MAX(float2, float)

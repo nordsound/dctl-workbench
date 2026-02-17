@@ -869,6 +869,18 @@ export class SemanticAnalyzer {
                 func = this.symbolTable.lookupFunctionOverload(funcName, expr.arguments.length);
             }
 
+            // For element-wise functions, prefer the builtin registration (empty params)
+            // over type header declarations, so element-wise inference handles return types
+            // and type checking is skipped (these functions accept any scalar/vector type).
+            if (func && !func.isBuiltin &&
+                (ELEMENTWISE_MATH_FUNCTIONS.has(funcName) || ELEMENTWISE_BINARY_FUNCTIONS.has(funcName))) {
+                const builtinOverload = this.symbolTable.getFunctionOverloads(funcName)
+                    .find(s => s.isBuiltin && s.parameters.length === 0);
+                if (builtinOverload) {
+                    func = builtinOverload;
+                }
+            }
+
             if (!func) {
                 // Check if any overload exists
                 const anyOverload = this.symbolTable.lookupFunction(funcName);
