@@ -144,6 +144,7 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
         try {
             // Preprocess to expand #include directives first
             let processedSource = source;
+            let includeExpandedSource = source; // Source with includes expanded but defines NOT processed
             let preprocessorSourceMap: any = undefined;
             let lineOffset = 0;
             let functionMacroNames: string[] = [];
@@ -154,6 +155,7 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
 
                 if (preprocessResult.success) {
                     processedSource = preprocessResult.expandedSource;
+                    includeExpandedSource = preprocessResult.includeExpandedSource;
                     preprocessorSourceMap = preprocessResult.sourceMap;
                     lineOffset = preprocessResult.lineOffset;
                 }
@@ -242,8 +244,9 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 }
 
                 // Semantic analysis (errors and warnings)
+                // Use includeExpandedSource so the analyzer sees functions from #include headers
                 if (!hasSyntaxErrors) {
-                    const analysis = analyzeDocument(source);
+                    const analysis = analyzeDocument(includeExpandedSource);
                     for (const error of analysis.errors) {
                         const errorLine = Math.max(0, error.line - 1);
                         const range = new vscode.Range(

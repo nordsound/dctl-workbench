@@ -128,11 +128,11 @@ export class DctlPreprocessor {
                 sourceMapBuilder
             );
 
-            const expandedSource = expandedLines.join('\n');
+            const includeExpandedSource = expandedLines.join('\n');
             const sourceMap = sourceMapBuilder.build();
 
             // Process #define directives
-            const defineResult = processDefines(expandedSource);
+            const defineResult = processDefines(includeExpandedSource);
             warnings.push(
                 ...defineResult.warnings.map(w => ({
                     file: normalizedPath,
@@ -144,6 +144,7 @@ export class DctlPreprocessor {
 
             return {
                 expandedSource: defineResult.source,
+                includeExpandedSource,
                 sourceMap,
                 includedFiles,
                 params: defineResult.params,
@@ -176,6 +177,7 @@ export class DctlPreprocessor {
             const lines = source.split('\n');
             return {
                 expandedSource: source,
+                includeExpandedSource: source,
                 sourceMap: createSingleFileSourceMap(normalizedPath, lines.length),
                 includedFiles,
                 params: [],
@@ -315,6 +317,7 @@ export class DctlPreprocessor {
     ): PreprocessResult {
         return {
             expandedSource: '',
+            includeExpandedSource: '',
             sourceMap: createSingleFileSourceMap(file, 0),
             includedFiles: [],
             params: [],

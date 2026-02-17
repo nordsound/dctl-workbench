@@ -926,6 +926,71 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         } catch { /* ignore */ }
     });
 
+    test('function defined in included header should not produce SEM002', async function () {
+        this.timeout(30000);
+
+        // When a DCTL file uses #include to bring in a header that defines functions,
+        // the semantic analyzer should see those functions and NOT report SEM002
+        // "Undefined function" for calls to them.
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctl-include-sem-test-'));
+        const headerFile = path.join(tmpDir, 'helpers.h');
+        const mainFile = path.join(tmpDir, 'main.dctl');
+
+        // Header defines a rotate() function
+        fs.writeFileSync(headerFile, `__DEVICE__ void rotate(float* ax, float* ay, float b) {
+    float tx = *ax * _cosf(b) - *ay * _sinf(b);
+    *ay = *ax * _sinf(b) + *ay * _cosf(b);
+    *ax = tx;
+}
+`, 'utf-8');
+
+        // Main file includes the header and calls rotate()
+        fs.writeFileSync(mainFile, `#include "helpers.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float x = p_R;
+    float y = p_G;
+    rotate(&x, &y, 1.0f);
+    return make_float3(x, y, p_B);
+}
+`, 'utf-8');
+
+        const mainUri = vscode.Uri.file(mainFile);
+
+        const doc = await vscode.workspace.openTextDocument(mainUri);
+        if (doc.languageId !== 'dctl') {
+            await vscode.languages.setTextDocumentLanguage(doc, 'dctl');
+        }
+        await vscode.window.showTextDocument(doc);
+
+        const diagnostics = await waitForStableDiagnostics(mainUri, 2000, 15000);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have SEM002 for 'rotate' — it IS defined in the included header
+        const sem002Errors = diagnostics.filter(d =>
+            d.code === 'SEM002' && d.message.includes('rotate')
+        );
+        assert.strictEqual(
+            sem002Errors.length,
+            0,
+            `Function 'rotate' defined in included header should not trigger SEM002. ` +
+            `Got: ${sem002Errors.map(d => d.message).join('; ')}`
+        );
+
+        // Clean up
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        try {
+            fs.unlinkSync(mainFile);
+            fs.unlinkSync(headerFile);
+            fs.rmdirSync(tmpDir);
+        } catch { /* ignore */ }
+    });
+
     test('valid included header should produce no diagnostics on header URI', async function () {
         this.timeout(30000);
 
