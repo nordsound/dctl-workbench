@@ -244,36 +244,40 @@ export class DctlNativeDiagnosticsProvider implements vscode.Disposable {
                 }
 
                 // Semantic analysis (errors and warnings)
-                // Use includeExpandedSource so the analyzer sees functions from #include headers
+                // Use includeExpandedSource so the analyzer sees functions from #include headers.
+                // Error line numbers are relative to includeExpandedSource and must be mapped
+                // back through the preprocessor source map to original file positions.
                 if (!hasSyntaxErrors) {
                     const analysis = analyzeDocument(includeExpandedSource);
-                    for (const error of analysis.errors) {
-                        const errorLine = Math.max(0, error.line - 1);
+                    for (const item of [...analysis.errors.map(e => ({ ...e, severity: 'error' as const })), ...analysis.warnings.map(w => ({ ...w, severity: 'warning' as const }))]) {
+                        let mappedLine = item.line;
+                        let mappedFile = filePath;
+
+                        // Map line back through preprocessor source map
+                        if (preprocessorSourceMap && preprocessorSourceMap.getOriginalPosition) {
+                            const original = preprocessorSourceMap.getOriginalPosition(item.line);
+                            if (original) {
+                                mappedLine = original.line;
+                                mappedFile = original.file;
+                            }
+                        }
+
+                        // Skip diagnostics from included files (not the user's main file)
+                        if (mappedFile && filePath && mappedFile !== filePath) {
+                            continue;
+                        }
+
+                        const diagLine = Math.max(0, mappedLine - 1);
                         const range = new vscode.Range(
-                            errorLine, error.column - 1,
-                            errorLine, error.column + 10
+                            diagLine, item.column - 1,
+                            diagLine, item.column + 10
                         );
                         const diagnostic = new vscode.Diagnostic(
                             range,
-                            error.message,
-                            vscode.DiagnosticSeverity.Error
+                            item.message,
+                            item.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
                         );
-                        diagnostic.code = error.code;
-                        diagnostic.source = 'DCTL';
-                        diagnostics.push(diagnostic);
-                    }
-                    for (const warning of analysis.warnings) {
-                        const warningLine = Math.max(0, warning.line - 1);
-                        const range = new vscode.Range(
-                            warningLine, warning.column - 1,
-                            warningLine, warning.column + 10
-                        );
-                        const diagnostic = new vscode.Diagnostic(
-                            range,
-                            warning.message,
-                            vscode.DiagnosticSeverity.Warning
-                        );
-                        diagnostic.code = warning.code;
+                        diagnostic.code = item.code;
                         diagnostic.source = 'DCTL';
                         diagnostics.push(diagnostic);
                     }
