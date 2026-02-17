@@ -107,8 +107,11 @@ export interface FunctionMacroInfo {
  * Result of preprocessing a DCTL file
  */
 export interface PreprocessResult {
-    /** Expanded source code with all includes inlined */
+    /** Expanded source code with all includes inlined and defines processed */
     expandedSource: string;
+
+    /** Source with only includes expanded (before processDefines), for semantic analysis */
+    includeExpandedSource: string;
 
     /** Source map for error location mapping */
     sourceMap: SourceMap;

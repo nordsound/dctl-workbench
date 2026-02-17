@@ -926,6 +926,159 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         } catch { /* ignore */ }
     });
 
+    test('semantic errors from included header should not leak onto main file', async function () {
+        this.timeout(30000);
+
+        // When a DCTL file includes a large header, the semantic analyzer receives
+        // include-expanded source. Error line numbers must be mapped back through
+        // the preprocessor source map so that:
+        // 1. Errors from included headers do NOT appear on the main file
+        // 2. Warnings on the main file have CORRECT line numbers (not shifted by header size)
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctl-sem-linemap-'));
+        const headerFile = path.join(tmpDir, 'utils.h');
+        const mainFile = path.join(tmpDir, 'main.dctl');
+
+        // Header with 10 lines (to shift line numbers)
+        // Includes an unused variable in the helper function (may trigger SEM_W002 inside the header)
+        fs.writeFileSync(headerFile, `__DEVICE__ float helper(float x) {
+    float temp = x * 2.0f;
+    float unused_in_header = 0.0f;
+    return temp;
+}
+
+__DEVICE__ float another_helper(float x) {
+    return x + 1.0f;
+}
+`, 'utf-8');
+
+        // Main file: line 1 is #include, lines 2-10 is the main code
+        // Line 3: transform function
+        // Line 5: unused variable on original line 5
+        // All line numbers should be relative to THIS file, not the expanded source
+        fs.writeFileSync(mainFile, `#include "utils.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float unused_in_main = 1.0f;
+    float r = helper(p_R);
+    return make_float3(r, p_G, p_B);
+}
+`, 'utf-8');
+
+        const mainUri = vscode.Uri.file(mainFile);
+
+        const doc = await vscode.workspace.openTextDocument(mainUri);
+        if (doc.languageId !== 'dctl') {
+            await vscode.languages.setTextDocumentLanguage(doc, 'dctl');
+        }
+        await vscode.window.showTextDocument(doc);
+
+        const diagnostics = await waitForStableDiagnostics(mainUri, 2000, 15000);
+        const mainDiags = vscode.languages.getDiagnostics(mainUri);
+
+        console.log(`Main file diagnostics (${mainDiags.length}):`);
+        for (const d of mainDiags) {
+            console.log(`  line ${d.range.start.line + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // 1. Semantic errors/warnings from the HEADER should NOT appear on the main file
+        //    (unused_in_header is in the header, not the main file)
+        const headerLeaks = mainDiags.filter(d =>
+            d.message.includes('unused_in_header')
+        );
+        assert.strictEqual(
+            headerLeaks.length,
+            0,
+            `Semantic diagnostics from included header should not appear on main file. ` +
+            `Got: ${headerLeaks.map(d => `[${d.code}] line ${d.range.start.line + 1}: ${d.message}`).join('; ')}`
+        );
+
+        // 2. All diagnostic line numbers on the main file should be within
+        //    the main file's actual line count (8 lines), NOT shifted by header size
+        const mainFileLines = 8; // The main.dctl has 8 lines
+        for (const d of mainDiags) {
+            // Skip non-semantic diagnostics (DCTL012 float suffix warnings etc.)
+            const line1 = d.range.start.line + 1;
+            assert.ok(
+                line1 >= 1 && line1 <= mainFileLines,
+                `Diagnostic [${d.code}] at line ${line1} is outside main file range 1-${mainFileLines}: ${d.message}`
+            );
+        }
+
+        // Clean up
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        try {
+            fs.unlinkSync(mainFile);
+            fs.unlinkSync(headerFile);
+            fs.rmdirSync(tmpDir);
+        } catch { /* ignore */ }
+    });
+
+    test('function defined in included header should not produce SEM002', async function () {
+        this.timeout(30000);
+
+        // When a DCTL file uses #include to bring in a header that defines functions,
+        // the semantic analyzer should see those functions and NOT report SEM002
+        // "Undefined function" for calls to them.
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dctl-include-sem-test-'));
+        const headerFile = path.join(tmpDir, 'helpers.h');
+        const mainFile = path.join(tmpDir, 'main.dctl');
+
+        // Header defines a rotate() function
+        fs.writeFileSync(headerFile, `__DEVICE__ void rotate(float* ax, float* ay, float b) {
+    float tx = *ax * _cosf(b) - *ay * _sinf(b);
+    *ay = *ax * _sinf(b) + *ay * _cosf(b);
+    *ax = tx;
+}
+`, 'utf-8');
+
+        // Main file includes the header and calls rotate()
+        fs.writeFileSync(mainFile, `#include "helpers.h"
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float x = p_R;
+    float y = p_G;
+    rotate(&x, &y, 1.0f);
+    return make_float3(x, y, p_B);
+}
+`, 'utf-8');
+
+        const mainUri = vscode.Uri.file(mainFile);
+
+        const doc = await vscode.workspace.openTextDocument(mainUri);
+        if (doc.languageId !== 'dctl') {
+            await vscode.languages.setTextDocumentLanguage(doc, 'dctl');
+        }
+        await vscode.window.showTextDocument(doc);
+
+        const diagnostics = await waitForStableDiagnostics(mainUri, 2000, 15000);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have SEM002 for 'rotate' — it IS defined in the included header
+        const sem002Errors = diagnostics.filter(d =>
+            d.code === 'SEM002' && d.message.includes('rotate')
+        );
+        assert.strictEqual(
+            sem002Errors.length,
+            0,
+            `Function 'rotate' defined in included header should not trigger SEM002. ` +
+            `Got: ${sem002Errors.map(d => d.message).join('; ')}`
+        );
+
+        // Clean up
+        await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        try {
+            fs.unlinkSync(mainFile);
+            fs.unlinkSync(headerFile);
+            fs.rmdirSync(tmpDir);
+        } catch { /* ignore */ }
+    });
+
     test('valid included header should produce no diagnostics on header URI', async function () {
         this.timeout(30000);
 
