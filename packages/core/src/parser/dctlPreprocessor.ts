@@ -103,9 +103,15 @@ int max(int x, int y);
 float fmin(float x, float y);
 float fmax(float x, float y);
 float3 cross(float3 a, float3 b);
+float dot(float2 a, float2 b);
 float dot(float3 a, float3 b);
+float dot(float4 a, float4 b);
+float length(float2 v);
 float length(float3 v);
+float length(float4 v);
+float2 normalize(float2 v);
 float3 normalize(float3 v);
+float4 normalize(float4 v);
 
 // Matrix functions
 float3x3 make_float3x3(float3 c0, float3 c1, float3 c2);
