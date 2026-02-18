@@ -51,5 +51,18 @@ export {
     type ACES2RgcShaderResult,
 } from '@dctl-workbench/core';
 
+// Custom OCIO builders
+export {
+    extractCustomOcioShaders,
+    buildCustomOcioComputeShader,
+    extractCustomOcioExportShaders,
+    type CustomOcioShaderResult,
+    type CustomOcioShaderOptions,
+    type CustomOcioComputeShaderResult,
+    type CustomOcioDctlOptions,
+    type CustomOcioExportShaderResult,
+    type CustomOcioExportOptions,
+} from '@dctl-workbench/core';
+
 // Re-export TextureBinding for backward compatibility
 export type { TextureBinding } from '@dctl-workbench/core';

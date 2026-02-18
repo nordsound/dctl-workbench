@@ -788,3 +788,4 @@ export * from "./dctl-compute-wgsl-builder.js";
 export * from "./aces-rgc-shader-builder.js";
 export * from "./dctl-export-shader-builder.js";
 export * from "./integrated-shader-builder.js";
+export * from "./custom-ocio-shader-builder.js";

@@ -1,0 +1,80 @@
+ocio_profile_version: 2.1
+
+environment: {}
+
+name: DaVinci Wide Gamut Test Config
+description: Test config for DaVinci Wide Gamut / Intermediate workflow
+
+roles:
+  default: raw
+  scene_linear: Linear DaVinci WideGamut
+  color_timing: DaVinci Intermediate WideGamut
+  compositing_log: DaVinci Intermediate WideGamut
+
+displays:
+  sRGB:
+    - !<View> {name: Raw, colorspace: raw}
+    - !<View> {name: DWG Display, colorspace: srgb_display}
+
+active_displays: [sRGB]
+active_views: [DWG Display, Raw]
+
+colorspaces:
+  # Scene reference (ACES AP0 equivalent, identity)
+  - !<ColorSpace>
+    name: reference
+    family: Scene
+    isdata: false
+
+  # DaVinci Intermediate Wide Gamut (log + gamut)
+  - !<ColorSpace>
+    name: DaVinci Intermediate WideGamut
+    family: Scene
+    isdata: false
+    encoding: log
+    to_scene_reference: !<GroupTransform>
+      children:
+        - !<LogCameraTransform>
+          log_side_slope: 0.07329248
+          log_side_offset: 0.51304736
+          lin_side_offset: 0.0075
+          lin_side_break: 0.00262409
+          linear_slope: 10.44426855
+          direction: inverse
+        - !<MatrixTransform>
+          matrix: [0.748270290272981, 0.167694659554328, 0.0840350501726906, 0, 0.0208421234689102, 1.11190474268894, -0.132746866157851, 0, -0.0915122574225729, -0.127746712807307, 1.21925897022988, 0, 0, 0, 0, 1]
+
+  # Linear DaVinci Wide Gamut (gamut only, no log)
+  - !<ColorSpace>
+    name: Linear DaVinci WideGamut
+    family: Scene
+    isdata: false
+    encoding: scene-linear
+    to_scene_reference: !<MatrixTransform>
+      matrix: [0.748270290272981, 0.167694659554328, 0.0840350501726906, 0, 0.0208421234689102, 1.11190474268894, -0.132746866157851, 0, -0.0915122574225729, -0.127746712807307, 1.21925897022988, 0, 0, 0, 0, 1]
+
+  # Raw / data
+  - !<ColorSpace>
+    name: raw
+    family: Utility
+    isdata: true
+
+  # sRGB display output
+  - !<ColorSpace>
+    name: srgb_display
+    family: Display
+    isdata: false
+    from_scene_reference: !<GroupTransform>
+      children:
+        - !<MatrixTransform>
+          matrix: [2.52168618674388, -1.13413098823972, -0.387555198504164, 0, -0.276479914229922, 1.37271908766826, -0.096239173438334, 0, -0.0153780649660342, -0.152975335867399, 1.16835340083343, 0, 0, 0, 0, 1]
+        - !<ExponentWithLinearTransform>
+          gamma: 2.4
+          offset: 0.055
+          direction: inverse
+
+display_colorspaces:
+  - !<ColorSpace>
+    name: sRGB_display_cs
+    family: Display
+    isdata: false

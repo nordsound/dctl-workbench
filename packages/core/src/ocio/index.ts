@@ -140,12 +140,69 @@ export class OCIOProcessor {
         this.processor = new this.module.OCIOProcessor();
     }
 
+    private mountedPath: string | null = null;
+
     /**
      * Initialize with a built-in config
      * @param configName Config name (default: studio-config-v4.0.0_aces-v2.0_ocio-v2.5)
      */
     init(configName: string = ''): boolean {
         return this.processor.initBuiltinConfig(configName);
+    }
+
+    /**
+     * Initialize from a config file on the filesystem.
+     * Mounts the config's parent directory via NODEFS so OCIO can resolve
+     * relative LUT file references (search_path).
+     */
+    initFromFile(configPath: string): boolean {
+        const absPath = path.resolve(configPath);
+        const configDir = path.dirname(absPath);
+        const configName = path.basename(absPath);
+
+        this.mountConfigDirectory(configDir);
+
+        const wasmConfigPath = `/ocio/${configName}`;
+        try {
+            return this.processor.initConfigFromFile(wasmConfigPath);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Initialize from a config YAML string.
+     * Only works for configs without external LUT file references.
+     */
+    initFromString(configContent: string): boolean {
+        try {
+            return this.processor.initConfigFromString(configContent);
+        } catch {
+            // WASM may throw numeric exceptions for severely malformed input
+            return false;
+        }
+    }
+
+    /**
+     * Create a chained transform: working → source → display/view.
+     * Uses OCIO GroupTransform to combine into a single GPU shader.
+     */
+    createChainedDisplayTransform(workingCS: string, sourceCS: string, display: string, view: string): boolean {
+        return this.processor.createChainedDisplayTransform(workingCS, sourceCS, display, view);
+    }
+
+    /**
+     * Get the family string of a color space (for filtering scene/display-referred)
+     */
+    getColorSpaceFamily(name: string): string {
+        return this.processor.getColorSpaceFamily(name);
+    }
+
+    /**
+     * Check if a color space is scene-referred (vs display-referred)
+     */
+    isSceneReferred(name: string): boolean {
+        return this.processor.isSceneReferred(name);
     }
 
     /**
@@ -473,7 +530,50 @@ export class OCIOProcessor {
      * Clean up resources
      */
     dispose(): void {
+        if (this.mountedPath) {
+            try {
+                this.module.FS.unmount(this.mountedPath);
+            } catch {
+                // Ignore unmount errors during cleanup
+            }
+            this.mountedPath = null;
+        }
         this.processor.delete();
+    }
+
+    /**
+     * Mount a host directory into the WASM filesystem via NODEFS.
+     * Creates /ocio mountpoint and mounts the given directory there.
+     */
+    private mountConfigDirectory(hostDir: string): void {
+        // Unmount previous if any
+        if (this.mountedPath) {
+            try {
+                this.module.FS.unmount(this.mountedPath);
+            } catch {
+                // Ignore
+            }
+            this.mountedPath = null;
+        }
+
+        const mountpoint = '/ocio';
+
+        // Ensure clean mountpoint: try unmounting stale mounts from other processors
+        try {
+            this.module.FS.unmount(mountpoint);
+        } catch {
+            // No active mount — expected
+        }
+
+        // Create mountpoint directory if it doesn't exist
+        try {
+            this.module.FS.stat(mountpoint);
+        } catch {
+            this.module.FS.mkdir(mountpoint);
+        }
+
+        this.module.FS.mount(this.module.NODEFS, { root: hostDir }, mountpoint);
+        this.mountedPath = mountpoint;
     }
 }
 
@@ -622,3 +722,159 @@ export async function createDisplayProcessor(
  * @deprecated Use setOcioWasmPath instead
  */
 export const setWasmDirectory = setOcioWasmPath;
+
+// =============================================================================
+// Config Validation
+// =============================================================================
+
+/** Result of OCIO config validation */
+export interface OcioConfigValidationResult {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+    colorSpaces: string[];
+    displays: string[];
+    sceneReferredSpaces: string[];
+}
+
+/**
+ * Validate an OCIO config file or string.
+ *
+ * Checks:
+ * - File exists and has .ocio extension (file mode)
+ * - OCIO can parse the config
+ * - Config has at least one display with views
+ * - Config has at least one scene-referred color space (needed for working space)
+ * - LUT files referenced by the config exist (warnings only)
+ */
+export function validateOcioConfig(
+    configPathOrYaml: string,
+    options?: { fromString?: boolean },
+): OcioConfigValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const empty: OcioConfigValidationResult = {
+        valid: false, errors, warnings,
+        colorSpaces: [], displays: [], sceneReferredSpaces: [],
+    };
+
+    const fromString = options?.fromString ?? false;
+
+    // --- File-level checks ---
+    let configDir: string | null = null;
+    if (!fromString) {
+        const absPath = path.resolve(configPathOrYaml);
+        if (!fs.existsSync(absPath)) {
+            errors.push(`Config file does not exist: ${absPath}`);
+            return { ...empty, errors };
+        }
+        if (path.extname(absPath).toLowerCase() !== '.ocio') {
+            errors.push(`Config file must have .ocio extension, got: ${path.extname(absPath)}`);
+            return { ...empty, errors };
+        }
+        configDir = path.dirname(absPath);
+    }
+
+    // --- Parse config ---
+    if (!ocioModule) {
+        errors.push('OCIO module not initialized. Call initOCIO() first.');
+        return { ...empty, errors };
+    }
+
+    const processor = new OCIOProcessor();
+    try {
+        let loaded: boolean;
+        if (fromString) {
+            loaded = processor.initFromString(configPathOrYaml);
+        } else {
+            loaded = processor.initFromFile(configPathOrYaml);
+        }
+
+        if (!loaded) {
+            errors.push(`Failed to parse OCIO config: ${processor.getLastError()}`);
+            return { ...empty, errors };
+        }
+
+        // --- Content-level checks ---
+        const colorSpaces = processor.getColorSpaces();
+        const displays = processor.getDisplays();
+
+        if (displays.length === 0) {
+            errors.push('Config has no displays defined');
+        }
+
+        // Check views for each display
+        for (const display of displays) {
+            const views = processor.getViews(display);
+            if (views.length === 0) {
+                errors.push(`Display "${display}" has no views defined`);
+            }
+        }
+
+        // Check for scene-referred color spaces (needed as working space)
+        const sceneReferredSpaces = colorSpaces.filter(cs => processor.isSceneReferred(cs));
+        if (sceneReferredSpaces.length === 0) {
+            errors.push('Config has no scene-referred color spaces (needed for working color space)');
+        }
+
+        // --- LUT file existence warnings ---
+        if (configDir && !fromString) {
+            checkLutFileReferences(configPathOrYaml, configDir, warnings);
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings,
+            colorSpaces,
+            displays,
+            sceneReferredSpaces,
+        };
+    } finally {
+        processor.dispose();
+    }
+}
+
+/**
+ * Check if LUT files referenced in the config YAML exist on disk.
+ * Adds warnings for missing files (does not fail validation).
+ */
+function checkLutFileReferences(configPath: string, configDir: string, warnings: string[]): void {
+    let yaml: string;
+    try {
+        yaml = fs.readFileSync(path.resolve(configPath), 'utf-8');
+    } catch {
+        return;
+    }
+
+    // Extract search_path from config
+    const searchPathMatch = yaml.match(/^search_path:\s*(.+)$/m);
+    const searchPaths: string[] = [];
+    if (searchPathMatch) {
+        const rawPaths = searchPathMatch[1].trim();
+        // search_path can be colon or semicolon separated
+        for (const p of rawPaths.split(/[:;]/)) {
+            const trimmed = p.trim();
+            if (trimmed) {
+                searchPaths.push(path.resolve(configDir, trimmed));
+            }
+        }
+    }
+    if (searchPaths.length === 0) {
+        searchPaths.push(configDir);
+    }
+
+    // Find FileTransform src references
+    const fileTransformRegex = /src:\s*([^\s,}]+)/g;
+    let match;
+    while ((match = fileTransformRegex.exec(yaml)) !== null) {
+        const lutFile = match[1];
+        // Skip if it looks like an inline value (not a file reference)
+        if (!lutFile.includes('.')) continue;
+
+        const found = searchPaths.some(sp => fs.existsSync(path.join(sp, lutFile)));
+        if (!found) {
+            warnings.push(`LUT file not found: ${lutFile} (searched: ${searchPaths.join(', ')})`);
+        }
+    }
+}

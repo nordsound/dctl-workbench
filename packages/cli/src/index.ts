@@ -8,7 +8,15 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // Import from core package
-import { DctlRuntime, isCompileError } from '@dctl-workbench/core';
+import {
+    DctlRuntime,
+    isCompileError,
+    initOCIO,
+    isOCIOInitialized,
+    OCIOProcessor,
+    extractCustomOcioExportShaders,
+    buildCustomOcioBufferComputeShader,
+} from '@dctl-workbench/core';
 
 // Import local modules
 import { SubprocessRenderer, type RgcTextureInfo } from './subprocess-renderer.js';
@@ -38,6 +46,8 @@ program
     .option('-w, --working-space <space>', 'Working color space for DCTL (ACEScct, ACEScc, AP1)', 'ACEScct')
     .option('--rgc', 'Apply ACES 2.0 Reference Gamut Compression (RGC) using OCIO')
     .option('--peak-luminance <nits>', 'Peak luminance for RGC in nits (100, 500, 1000, 2000, 4000)', '100')
+    .option('--ocio-config <path>', 'Custom OCIO config file (.ocio). Overrides built-in ACES pipeline')
+    .option('--source-space <name>', 'Source color space name from the OCIO config (required with --ocio-config)')
     .option('--include <dirs...>', 'Additional include directories for DCTL')
     .action(async (dctl: string, input: string, output: string, options) => {
         try {
@@ -126,9 +136,16 @@ async function applyDctl(
         workingSpace?: string;
         rgc?: boolean;
         peakLuminance?: string;
+        ocioConfig?: string;
+        sourceSpace?: string;
         include?: string[];
     }
 ): Promise<void> {
+    // Custom OCIO mode
+    if (options.ocioConfig) {
+        return applyDctlCustomOcio(dctlPath, inputPath, outputPath, options);
+    }
+
     const inputSpace = options.inputSpace || 'AP0';
     const outputSpace = options.outputSpace || 'AP0';
     const workingSpace = options.workingSpace || 'ACEScct';
@@ -266,6 +283,220 @@ async function applyDctl(
     });
 
     console.log(`Output written: ${outputPath}`);
+}
+
+/**
+ * Apply DCTL with custom OCIO config
+ * Pipeline: source → working (OCIO) → DCTL → working → source (OCIO)
+ */
+async function applyDctlCustomOcio(
+    dctlPath: string,
+    inputPath: string,
+    outputPath: string,
+    options: {
+        param?: string[];
+        workingSpace?: string;
+        ocioConfig?: string;
+        sourceSpace?: string;
+        include?: string[];
+    }
+): Promise<void> {
+    const ocioConfigPath = path.resolve(options.ocioConfig!);
+    if (!fs.existsSync(ocioConfigPath)) {
+        throw new Error(`OCIO config file not found: ${ocioConfigPath}`);
+    }
+
+    const workingSpace = options.workingSpace || '';
+    const sourceSpace = options.sourceSpace || '';
+
+    console.log(`Applying DCTL (Custom OCIO mode): ${dctlPath}`);
+    console.log(`OCIO config: ${ocioConfigPath}`);
+    console.log(`Input: ${inputPath}`);
+    console.log(`Output: ${outputPath}`);
+
+    // Initialize runtime (WASM modules)
+    const runtime = new DctlRuntime();
+    const wasmPath = getWasmPath();
+    await runtime.init({ wasmPath });
+
+    // Initialize OCIO
+    if (!isOCIOInitialized()) {
+        await initOCIO(wasmPath);
+    }
+
+    // Determine source and working color spaces from the OCIO config
+    const tempProcessor = new OCIOProcessor();
+    try {
+        if (!tempProcessor.initFromFile(ocioConfigPath)) {
+            throw new Error(`Failed to load OCIO config: ${ocioConfigPath}`);
+        }
+
+        const colorSpaces = tempProcessor.getColorSpaces();
+        const sceneReferred = colorSpaces.filter(cs => tempProcessor.isSceneReferred(cs));
+
+        // Resolve source space
+        let resolvedSourceSpace = sourceSpace;
+        if (!resolvedSourceSpace) {
+            if (sceneReferred.length > 0) {
+                resolvedSourceSpace = sceneReferred[0];
+            } else if (colorSpaces.length > 0) {
+                resolvedSourceSpace = colorSpaces[0];
+            } else {
+                throw new Error('No color spaces found in OCIO config');
+            }
+            console.log(`Source space (auto): ${resolvedSourceSpace}`);
+        } else {
+            if (!colorSpaces.includes(resolvedSourceSpace)) {
+                throw new Error(`Source space '${resolvedSourceSpace}' not found in OCIO config. Available: ${colorSpaces.join(', ')}`);
+            }
+            console.log(`Source space: ${resolvedSourceSpace}`);
+        }
+
+        // Resolve working space
+        let resolvedWorkingSpace = workingSpace;
+        if (!resolvedWorkingSpace) {
+            resolvedWorkingSpace = sceneReferred.length > 1 ? sceneReferred[1] : resolvedSourceSpace;
+            console.log(`Working space (auto): ${resolvedWorkingSpace}`);
+        } else {
+            if (!colorSpaces.includes(resolvedWorkingSpace)) {
+                throw new Error(`Working space '${resolvedWorkingSpace}' not found in OCIO config. Available: ${colorSpaces.join(', ')}`);
+            }
+            console.log(`Working space: ${resolvedWorkingSpace}`);
+        }
+
+        tempProcessor.dispose();
+
+        // Read DCTL source
+        const dctlSource = fs.readFileSync(path.resolve(dctlPath), 'utf-8');
+
+        // Compile DCTL with includes
+        const includeDirs = options.include || [];
+        includeDirs.unshift(path.dirname(path.resolve(dctlPath)));
+
+        const compileResult = await runtime.compileWithIncludes(dctlSource, {
+            includeDirs,
+            mainFilePath: path.resolve(dctlPath),
+        });
+
+        if (isCompileError(compileResult)) {
+            throw new Error(`DCTL compilation failed: ${compileResult.message}`);
+        }
+
+        console.log(`DCTL compiled: ${compileResult.wgsl.length} chars WGSL`);
+        console.log(`Parameters: ${compileResult.parameters.length}`);
+
+        // Read input EXR
+        const exrData = await runtime.readExr(path.resolve(inputPath));
+        console.log(`Input image: ${exrData.width}x${exrData.height}, channels: ${exrData.channels.join(', ')}`);
+
+        // Parse parameter values
+        const paramValues: Record<string, number> = {};
+        for (const param of compileResult.parameters) {
+            if (param.param_type.type === 'float' || param.param_type.type === 'int' || param.param_type.type === 'combo') {
+                paramValues[param.name] = param.param_type.default;
+            } else if (param.param_type.type === 'bool') {
+                paramValues[param.name] = param.param_type.default ? 1 : 0;
+            }
+        }
+        if (options.param) {
+            for (const p of options.param) {
+                const [name, value] = p.split('=');
+                if (name && value !== undefined) {
+                    paramValues[name] = parseFloat(value);
+                }
+            }
+        }
+        console.log('Parameter values:', paramValues);
+
+        // Extract custom OCIO export shaders (source→working + working→source)
+        console.log('Extracting custom OCIO shaders...');
+        const extractedShaders = extractCustomOcioExportShaders(ocioConfigPath, {
+            sourceColorSpace: resolvedSourceSpace,
+            workingColorSpace: resolvedWorkingSpace,
+        });
+
+        if (!extractedShaders.success) {
+            throw new Error(`Failed to extract OCIO shaders: ${extractedShaders.error}`);
+        }
+
+        // Build buffer-based compute shader with custom OCIO
+        console.log('Building custom OCIO compute shader...');
+        const shaderResult = await buildCustomOcioBufferComputeShader(
+            wasmPath,
+            extractedShaders,
+            compileResult,
+            {
+                width: exrData.width,
+                height: exrData.height,
+                paramValues,
+            }
+        );
+
+        if (!shaderResult.success) {
+            throw new Error(`Failed to build compute shader: ${shaderResult.error}`);
+        }
+
+        console.log(`Compute shader: ${shaderResult.computeWgsl.length} chars`);
+
+        // Prepare OCIO LUT textures for the subprocess renderer
+        const ocioTextures: RgcTextureInfo[] = [];
+
+        for (const tex of shaderResult.textures) {
+            const texData = tex.data instanceof Float32Array ? tex.data : new Float32Array(tex.data);
+            const channels = tex.channel === 0 ? 1 : 3;
+            ocioTextures.push({
+                name: tex.samplerName,
+                type: '2d',
+                width: tex.width,
+                height: tex.height,
+                channels,
+                data: texData,
+            });
+        }
+
+        for (const tex of shaderResult.textures3D) {
+            const texData = tex.data instanceof Float32Array ? tex.data : new Float32Array(tex.data);
+            ocioTextures.push({
+                name: tex.samplerName,
+                type: '3d',
+                width: tex.edgeLen,
+                height: tex.edgeLen,
+                depth: tex.edgeLen,
+                channels: 3,
+                data: texData,
+            });
+        }
+
+        console.log(`OCIO LUT textures: ${ocioTextures.length}`);
+
+        // Apply DCTL effect using subprocess renderer
+        console.log('Applying DCTL effect (custom OCIO)...');
+        const renderer = new SubprocessRenderer();
+        const outputData = await renderer.renderWithTextures(
+            shaderResult.computeWgsl,
+            exrData.data,
+            exrData.width,
+            exrData.height,
+            ocioTextures
+        );
+        console.log('Render complete, output size:', outputData.length);
+
+        // Write output EXR (not ACES — output is in OCIO source color space)
+        console.log('Writing output EXR...');
+        await runtime.writeExr(path.resolve(outputPath), {
+            width: exrData.width,
+            height: exrData.height,
+            channels: 3,
+            data: outputData,
+            compression: 'PIZ',
+            aces: false,
+        });
+
+        console.log(`Output written: ${outputPath} (color space: ${resolvedSourceSpace})`);
+    } catch (err) {
+        tempProcessor.dispose();
+        throw err;
+    }
 }
 
 /**

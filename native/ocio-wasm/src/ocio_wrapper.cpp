@@ -10,6 +10,7 @@
 #include <OpenColorIO/OpenColorIO.h>
 #include <vector>
 #include <string>
+#include <sstream>
 #include <memory>
 
 namespace OCIO = OCIO_NAMESPACE;
@@ -543,6 +544,112 @@ public:
     }
 
     /**
+     * Initialize from a config file on the filesystem.
+     * The config directory must be mounted via NODEFS before calling this.
+     */
+    bool initConfigFromFile(const std::string& configPath) {
+        try {
+            config_ = OCIO::Config::CreateFromFile(configPath.c_str());
+            return config_ != nullptr;
+        } catch (const OCIO::Exception& e) {
+            lastError_ = e.what();
+            return false;
+        }
+    }
+
+    /**
+     * Initialize from a config YAML string.
+     * Only works for configs without external LUT file references.
+     */
+    bool initConfigFromString(const std::string& configContent) {
+        try {
+            std::istringstream is(configContent);
+            config_ = OCIO::Config::CreateFromStream(is);
+            return config_ != nullptr;
+        } catch (const OCIO::Exception& e) {
+            lastError_ = e.what();
+            return false;
+        }
+    }
+
+    /**
+     * Create a chained transform: working → source → display/view
+     * Uses GroupTransform to combine two transforms into one processor,
+     * reducing the number of GPU shaders needed.
+     */
+    bool createChainedDisplayTransform(const std::string& workingCS,
+                                        const std::string& sourceCS,
+                                        const std::string& display,
+                                        const std::string& view) {
+        if (!config_) {
+            lastError_ = "Config not initialized";
+            return false;
+        }
+
+        try {
+            auto group = OCIO::GroupTransform::Create();
+
+            // Step 1: working → source (color space transform)
+            auto csTransform = OCIO::ColorSpaceTransform::Create();
+            csTransform->setSrc(workingCS.c_str());
+            csTransform->setDst(sourceCS.c_str());
+            group->appendTransform(csTransform);
+
+            // Step 2: source → display/view (display view transform)
+            auto displayTransform = OCIO::DisplayViewTransform::Create();
+            displayTransform->setSrc(sourceCS.c_str());
+            displayTransform->setDisplay(display.c_str());
+            displayTransform->setView(view.c_str());
+            group->appendTransform(displayTransform);
+
+            auto processor = config_->getProcessor(group);
+            cpuProc_ = processor->getDefaultCPUProcessor();
+
+            // Store for GPU processor
+            currentTransformType_ = TransformType::ChainedDisplay;
+            currentSrc_ = workingCS;
+            currentDst_ = sourceCS;
+            currentDisplay_ = display;
+            currentView_ = view;
+
+            return true;
+        } catch (const OCIO::Exception& e) {
+            lastError_ = e.what();
+            return false;
+        }
+    }
+
+    /**
+     * Get the family of a color space (for filtering scene/display-referred)
+     */
+    std::string getColorSpaceFamily(const std::string& name) const {
+        if (!config_) return "";
+        try {
+            auto cs = config_->getColorSpace(name.c_str());
+            if (!cs) return "";
+            const char* family = cs->getFamily();
+            return family ? std::string(family) : "";
+        } catch (const OCIO::Exception&) {
+            return "";
+        }
+    }
+
+    /**
+     * Check if a color space is scene-referred (vs display-referred)
+     * Uses OCIO's ReferenceSpaceType to distinguish.
+     */
+    bool isSceneReferred(const std::string& name) const {
+        if (!config_) return false;
+        try {
+            auto cs = config_->getColorSpace(name.c_str());
+            if (!cs) return false;
+            return cs->getReferenceSpaceType() == OCIO::REFERENCE_SPACE_SCENE;
+        } catch (const OCIO::Exception&) {
+            return false;
+        }
+    }
+
+    /**
      * Setup GPU processor for shader extraction
      */
     bool setupGpuProcessor() {
@@ -614,6 +721,22 @@ public:
                 groupTransform->appendTransform(jmhToRgb);
 
                 processor = config_->getProcessor(groupTransform);
+            } else if (currentTransformType_ == TransformType::ChainedDisplay) {
+                // Recreate the chained GroupTransform for GPU shader extraction
+                auto group = OCIO::GroupTransform::Create();
+
+                auto csTransform = OCIO::ColorSpaceTransform::Create();
+                csTransform->setSrc(currentSrc_.c_str());
+                csTransform->setDst(currentDst_.c_str());
+                group->appendTransform(csTransform);
+
+                auto displayTransform = OCIO::DisplayViewTransform::Create();
+                displayTransform->setSrc(currentDst_.c_str());
+                displayTransform->setDisplay(currentDisplay_.c_str());
+                displayTransform->setView(currentView_.c_str());
+                group->appendTransform(displayTransform);
+
+                processor = config_->getProcessor(group);
             } else {
                 lastError_ = "No transform configured";
                 return false;
@@ -740,7 +863,7 @@ public:
     }
 
 private:
-    enum class TransformType { None, ColorSpace, DisplayView, InverseDisplayView, FixedFunction };
+    enum class TransformType { None, ColorSpace, DisplayView, InverseDisplayView, FixedFunction, ChainedDisplay };
 
     OCIO::ConstConfigRcPtr config_;
     OCIO::ConstCPUProcessorRcPtr cpuProc_;
@@ -816,6 +939,11 @@ EMSCRIPTEN_BINDINGS(ocio_module) {
         .function("getLastError", &OCIOProcessor::getLastError)
         .function("hasTransform", &OCIOProcessor::hasTransform)
         .function("getConfigDescription", &OCIOProcessor::getConfigDescription)
+        .function("initConfigFromFile", &OCIOProcessor::initConfigFromFile)
+        .function("initConfigFromString", &OCIOProcessor::initConfigFromString)
+        .function("createChainedDisplayTransform", &OCIOProcessor::createChainedDisplayTransform)
+        .function("getColorSpaceFamily", &OCIOProcessor::getColorSpaceFamily)
+        .function("isSceneReferred", &OCIOProcessor::isSceneReferred)
         .function("setupGpuProcessor", &OCIOProcessor::setupGpuProcessor)
         .function("extractGpuShaderInfo", &OCIOProcessor::extractGpuShaderInfo);
 

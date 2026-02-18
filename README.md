@@ -32,8 +32,9 @@ DCTL Workbench provides a complete development environment for writing, testing,
   - Automatic update on file changes
   - Interactive UI parameter controls (sliders, checkboxes, combos)
 
-- **ACES Color Pipeline**
-  - Full ACES 2.0 workflow
+- **Color Pipeline**
+  - Full ACES 2.0 workflow with built-in config (default)
+  - Custom OCIO config support — load your own `.ocio` config with LUTs
   - ACES 2.0 Reference Gamut Compression (RGC) support
   - Working color space options (ACES2065-1, ACEScg, ACEScc, ACEScct, Linear sRGB)
   - Display transforms via OpenColorIO
@@ -49,6 +50,7 @@ DCTL Workbench provides a complete development environment for writing, testing,
   - Input/output color space conversion
   - ACES RGC integration
   - Multiple working color space options
+  - Custom OCIO config with `--ocio-config` option
 
 - **Developer Tools**
   - Compile DCTL to WGSL for debugging
@@ -69,7 +71,8 @@ DCTL Workbench provides a complete development environment for writing, testing,
 - **Color Science**
   - AP0 ↔ AP1 matrix conversions
   - ACEScct/ACEScc transfer functions
-  - OpenColorIO integration
+  - OpenColorIO integration (built-in ACES + custom config)
+  - Config validation with LUT reference checking
 
 ## Supported Formats
 
@@ -168,6 +171,7 @@ npm run build:vscode    # VS Code extension
 |---------|---------|-------------|
 | `defaultWorkingColorSpace` | `ACEScct` | Default working color space (can be changed per viewer) |
 | `defaultExportCompression` | `PIZ` | Default EXR export compression method |
+| `ocioConfigPath` | *(empty)* | Path to custom OCIO config file (`.ocio`). Leave empty for built-in ACES |
 
 **Editor** (`dctlWorkbench.editor.*`)
 
@@ -200,6 +204,12 @@ dctlw apply effect.dctl input.exr output.exr \
   --rgc \
   --peak-luminance 1000
 
+# With custom OCIO config
+dctlw apply effect.dctl input.exr output.exr \
+  --ocio-config /path/to/config.ocio \
+  --source-space "ACES2065-1" \
+  --working-space "ACEScg"
+
 # With include directories
 dctlw apply effect.dctl input.exr output.exr \
   --include ./includes --include ./libs
@@ -215,6 +225,8 @@ dctlw apply effect.dctl input.exr output.exr \
 | `-w, --working-space <space>` | `ACEScct` | Working color space for DCTL                      |
 | `--rgc`                       | `false`   | Enable ACES 2.0 Reference Gamut Compression       |
 | `--peak-luminance <nits>`     | `100`     | Peak luminance for RGC (100/500/1000/2000/4000)   |
+| `--ocio-config <path>`        | -         | Custom OCIO config file (`.ocio`). Overrides ACES |
+| `--source-space <name>`       | -         | Source color space from the OCIO config           |
 | `--include <dir>`             | -         | Additional include directories (repeatable)       |
 
 #### Compile DCTL to WGSL
@@ -432,6 +444,7 @@ npm run test
 
 ## Roadmap
 
+- [x] Custom OCIO config support
 - [ ] Multi-layer EXR support
 - [ ] GPU LUT baking
 - [ ] DCTL debugger

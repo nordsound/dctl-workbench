@@ -1,5 +1,7 @@
 import * as assert from 'assert';
-import { parseCompressionSetting, parseWorkingColorSpace, VALID_COLOR_SPACES } from '../../editor/settings-helpers';
+import * as path from 'path';
+import * as fs from 'fs';
+import { parseCompressionSetting, parseWorkingColorSpace, parseOcioConfigPath, determinePipelineMode, VALID_COLOR_SPACES } from '../../editor/settings-helpers';
 
 describe('Settings Configuration', () => {
     describe('parseCompressionSetting', () => {
@@ -90,6 +92,56 @@ describe('Settings Configuration', () => {
             assert.ok(VALID_COLOR_SPACES.includes('ACEScc'));
             assert.ok(VALID_COLOR_SPACES.includes('ACEScct'));
             assert.ok(VALID_COLOR_SPACES.includes('linear_sRGB'));
+        });
+    });
+
+    describe('parseOcioConfigPath', () => {
+        it('should return null for empty string', () => {
+            assert.strictEqual(parseOcioConfigPath(''), null);
+        });
+
+        it('should return null for whitespace-only string', () => {
+            assert.strictEqual(parseOcioConfigPath('   '), null);
+        });
+
+        it('should return null for non-existent path', () => {
+            assert.strictEqual(parseOcioConfigPath('/nonexistent/path/config.ocio'), null);
+        });
+
+        it('should return resolved path for existing .ocio file', () => {
+            const fixtureConfig = path.resolve(__dirname, '..', '..', '..', '..', '..', 'test', 'fixtures', 'test-ocio-config', 'config.ocio');
+            if (fs.existsSync(fixtureConfig)) {
+                const result = parseOcioConfigPath(fixtureConfig);
+                assert.strictEqual(result, fixtureConfig);
+            }
+        });
+
+        it('should reject non-.ocio file extension', () => {
+            // package.json exists but is not a .ocio file
+            const existingFile = path.resolve(__dirname, '..', '..', '..', 'package.json');
+            if (fs.existsSync(existingFile)) {
+                const result = parseOcioConfigPath(existingFile);
+                assert.strictEqual(result, null, 'Should reject non-.ocio files');
+            }
+        });
+
+        it('should accept .ocio file extension', () => {
+            // Use the test fixture config.ocio
+            const fixtureConfig = path.resolve(__dirname, '..', '..', '..', '..', '..', 'test', 'fixtures', 'test-ocio-config', 'config.ocio');
+            if (fs.existsSync(fixtureConfig)) {
+                const result = parseOcioConfigPath(fixtureConfig);
+                assert.strictEqual(result, fixtureConfig, 'Should accept .ocio files');
+            }
+        });
+    });
+
+    describe('determinePipelineMode', () => {
+        it('should return aces when ocioConfigPath is null', () => {
+            assert.strictEqual(determinePipelineMode(null), 'aces');
+        });
+
+        it('should return custom-ocio when ocioConfigPath is set', () => {
+            assert.strictEqual(determinePipelineMode('/some/path/config.ocio'), 'custom-ocio');
         });
     });
 });
