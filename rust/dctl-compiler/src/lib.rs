@@ -1572,4 +1572,53 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             "WGSL output should not be empty"
         );
     }
+
+    /// Test that multi-variable for-loop initializers compile correctly.
+    /// C allows `for (int a = 0, b = 0; ...)` which declares multiple variables.
+    /// The Rust compiler must handle all declarators, not just the first.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_multi_variable_for_init() {
+        let source = r#"
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float sum = 0.0f;
+    for (int i = 0, j = 0; i < 10; i++, j++) {
+        sum += (float)i + (float)j;
+    }
+    return make_float3(sum, sum, sum);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        // Should have no "Undefined variable" errors for j
+        let undefined_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| d.message.contains("Undefined variable"))
+            .collect();
+        assert!(
+            undefined_errors.is_empty(),
+            "Should have no undefined variable errors for multi-var for-init, got: {:?}",
+            undefined_errors
+        );
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
 }
