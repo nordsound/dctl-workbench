@@ -272,6 +272,7 @@ function joinBackslashLines(source: string): string {
     const lines = source.split('\n');
     const result: string[] = [];
     let currentLine = '';
+    let continuationCount = 0;
 
     for (const line of lines) {
         // Check if line ends with backslash (possibly with trailing whitespace)
@@ -279,11 +280,17 @@ function joinBackslashLines(source: string): string {
         if (trimmedEnd.endsWith('\\')) {
             // Append this line without the backslash to currentLine
             currentLine += trimmedEnd.slice(0, -1) + ' ';
+            continuationCount++;
         } else {
             // No continuation, complete the line
             currentLine += line;
             result.push(currentLine);
+            // Add empty lines to preserve original line numbering
+            for (let i = 0; i < continuationCount; i++) {
+                result.push('');
+            }
             currentLine = '';
+            continuationCount = 0;
         }
     }
 

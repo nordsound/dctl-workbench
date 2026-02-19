@@ -809,6 +809,69 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+describe('analyzeDocument backslash continuation line mapping', () => {
+    it('should report correct line numbers after backslash-continued #define macros', () => {
+        // Backslash continuations in #define macros collapse multiple lines into one.
+        // Line numbers for subsequent code should still map correctly.
+        // Line 1: (empty from template literal)
+        // Line 2: #define MULTI(a, b) \   <- continuation starts
+        // Line 3:     ((a) * (b))         <- continuation ends
+        // Line 4: (empty)
+        // Line 5: #define ANOTHER(x) \    <- continuation starts
+        // Line 6:     ((x) + 1)           <- continuation ends
+        // Line 7: (empty)
+        // Line 8: __DEVICE__ float helper(float x) {
+        // Line 9:     float unused = 1.0f;
+        // Line 10:    return x;
+        // Line 11: }
+        // Line 12: (empty)
+        // Line 13: __DEVICE__ float3 transform(...) {
+        // Line 14:    return make_float3(p_R, p_G, p_B);
+        // Line 15: }
+        const source = `
+#define MULTI(a, b) \\
+    ((a) * (b))
+
+#define ANOTHER(x) \\
+    ((x) + 1)
+
+__DEVICE__ float helper(float x) {
+    float unused = 1.0f;
+    return x;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        // 'unused' is at original line 9
+        const w = result.warnings.find(w => w.message.includes('unused'));
+        assert.ok(w, 'should have unused variable warning');
+        assert.equal(w!.line, 9, `unused should be at line 9, got ${w!.line}`);
+    });
+});
+
+describe('analyzeDocument SEM018 local variable shadowing', () => {
+    it('should NOT fire SEM018 when local variable shadows UI param name', () => {
+        // When a helper function declares a local variable with the same name as a UI param,
+        // references to that local variable should NOT trigger SEM018.
+        const source = `
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float applyGain(float x, float g) {
+    float gain = g;
+    return x * gain;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(applyGain(p_R, gain), p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const sem018 = result.errors.find(e => e.code === 'SEM018');
+        assert.ok(!sem018, `Should NOT fire SEM018 when local var shadows UI param. Got: ${sem018?.message ?? 'none'}`);
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
