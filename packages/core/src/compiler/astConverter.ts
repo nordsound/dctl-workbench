@@ -206,13 +206,25 @@ type RustSizeofOperand =
 // These are cleared and processed for each function
 let hoistedDeclarations: RustDeclaration[] = [];
 
+// Module-level array to collect warnings about unsupported syntax
+let conversionWarnings: Array<{ message: string; line: number; column: number }> = [];
+
+export interface AstConversionResult {
+    json: string;
+    warnings: Array<{ message: string; line: number; column: number }>;
+}
+
 /**
  * Convert TypeScript DCTL AST to Rust AST format JSON
  */
-export function convertAstToRustFormat(module: ModuleNode, params?: DctlParam[]): string {
+export function convertAstToRustFormat(module: ModuleNode, params?: DctlParam[]): AstConversionResult {
     hoistedDeclarations = []; // Reset hoisted declarations
+    conversionWarnings = []; // Reset warnings
     const rustModule = convertModule(module, params);
-    return JSON.stringify(rustModule);
+    return {
+        json: JSON.stringify(rustModule),
+        warnings: [...conversionWarnings],
+    };
 }
 
 function convertLocation(loc: SourceLocation): RustLocation {
@@ -810,9 +822,21 @@ function convertExpression(expr: ExpressionNode): RustExpression {
             };
         }
 
-        default:
-            // For unhandled expression types, return a placeholder identifier
-            return { kind: 'Identifier', name: '_unknown_', loc };
+        default: {
+            // Record warning for unsupported expression types
+            const syntaxNames: Record<string, string> = {
+                'StatementExpression': 'GCC statement expressions ({ ... })',
+                'CompoundLiteral': 'compound literals',
+            };
+            const syntaxName = syntaxNames[expr.kind] ?? `'${expr.kind}' expressions`;
+            conversionWarnings.push({
+                message: `Unsupported syntax: ${syntaxName} cannot be compiled to WGSL. This may work in DaVinci Resolve (CUDA/Metal).`,
+                line: loc.line,
+                column: loc.column,
+            });
+            // Return placeholder so compilation can continue and report the error
+            return { kind: 'Literal', value: { Int: 0 }, loc };
+        }
     }
 }
 
