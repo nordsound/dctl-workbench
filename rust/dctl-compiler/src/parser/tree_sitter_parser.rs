@@ -859,6 +859,7 @@ impl TreeSitterParser {
             "sizeof_expression" => self.parse_sizeof_expression(node, source),
             "comma_expression" => self.parse_comma_expression(node, source),
             "initializer_list" => self.parse_initializer_list(node, source),
+            "compound_literal_expression" => self.parse_compound_literal(node, source),
             _ => {
                 // Fallback: try to parse as identifier
                 let text = self.get_text(node, source);
@@ -1234,6 +1235,45 @@ impl TreeSitterParser {
         Ok(Expression::Cast(CastExpr {
             target_type,
             operand: Box::new(operand),
+            loc,
+        }))
+    }
+
+    /// Parse compound literal expression: (Type){expr1, expr2, ...}
+    /// Represented as Cast(Type, InitializerList) in the AST, same as the TS parser.
+    fn parse_compound_literal(
+        &self,
+        node: Node,
+        source: &str,
+    ) -> Result<Expression, ParseError> {
+        let loc = self.get_location(node);
+        let mut target_type = Type::default();
+        let mut initializer = self.make_int_literal(0, loc);
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "type_descriptor" => {
+                    let mut inner_cursor = child.walk();
+                    for inner_child in child.children(&mut inner_cursor) {
+                        if inner_child.kind() == "primitive_type"
+                            || inner_child.kind() == "type_identifier"
+                            || inner_child.kind() == "struct_specifier"
+                        {
+                            target_type = self.parse_type_from_node(inner_child, source)?;
+                        }
+                    }
+                }
+                "initializer_list" => {
+                    initializer = self.parse_initializer_list(child, source)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Expression::Cast(CastExpr {
+            target_type,
+            operand: Box::new(initializer),
             loc,
         }))
     }

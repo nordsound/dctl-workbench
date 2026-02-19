@@ -1444,9 +1444,28 @@ impl NagaModuleGenerator {
                 }
             }
             Expression::Cast(cast) => {
-                let operand = self.generate_expression(&cast.operand, ctx)?;
                 let target_type = self.convert_ast_type(&cast.target_type);
                 let type_handle = self.get_or_create_type(&target_type);
+
+                // Compound literal: (Type){expr1, expr2, ...} → Compose
+                // When the operand is an initializer list, this is a compound literal
+                // (struct constructor or vector constructor), not a type cast.
+                if let Expression::InitializerList(init_list) = &*cast.operand {
+                    let components: Result<Vec<_>, _> = init_list
+                        .elements
+                        .iter()
+                        .map(|e| self.generate_expression(e, ctx))
+                        .collect();
+                    return Ok(ctx.expressions.append(
+                        NagaExpr::Compose {
+                            ty: type_handle,
+                            components: components?,
+                        },
+                        Span::UNDEFINED,
+                    ));
+                }
+
+                let operand = self.generate_expression(&cast.operand, ctx)?;
 
                 // Check what kind of cast this is
                 match &self.module.types[type_handle].inner {

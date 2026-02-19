@@ -413,11 +413,60 @@ npm run test
 
 ## Known Limitations
 
-### DCTL Compatibility
+DCTL Workbench compiles DCTL to [WGSL (WebGPU Shading Language)](https://www.w3.org/TR/WGSL/) for browser-based rendering. Some DCTL features that work in DaVinci Resolve (CUDA/Metal/OpenCL backends) cannot be represented in WGSL. When unsupported syntax is detected, the compiler emits a descriptive error message indicating the limitation.
 
-- Some DaVinci Resolve-specific functions may not be supported
-- `__TEXTURE2D__` and `__TEXTURE3D__` types have limited support
-- Hardware-specific optimizations are not implemented
+### Unsupported DCTL Syntax (WGSL Constraints)
+
+The following features are valid DCTL and may work in DaVinci Resolve, but **cannot be compiled to WGSL**:
+
+| Feature | Description | Example |
+|---------|-------------|---------|
+| GCC statement expressions | Block expressions returning a value (WGSL has no [statement expressions](https://www.w3.org/TR/WGSL/#expressions)) | `({ float t = 1.0f; t; })` |
+| Double pointers | Pointer-to-pointer types (WGSL [pointers](https://www.w3.org/TR/WGSL/#ref-ptr-types) cannot be nested) | `float** ptr` |
+| Function pointers | Calling functions through pointers (WGSL has no [function pointer type](https://www.w3.org/TR/WGSL/#types)) | `(*funcPtr)(args)` |
+| Pointer-returning functions | Functions that return pointer types (WGSL [functions](https://www.w3.org/TR/WGSL/#function-declaration-sec) cannot return pointers) | `float* getPtr()` |
+| Dynamic array sizes | Runtime-determined array dimensions (WGSL [arrays](https://www.w3.org/TR/WGSL/#array-types) require constant sizes) | `float arr[n]` (non-constant `n`) |
+
+### Type System Limitations
+
+| DCTL Type | WGSL Mapping | Notes |
+|-----------|-------------|-------|
+| `double` | `f32` | Precision reduced from 64-bit to 32-bit |
+| `half` | `f32` | Promoted to 32-bit (no native `f16` support) |
+| `char` | `i32` | Promoted to 32-bit integer |
+| `long` / `long long` | `i32` / `u32` | 64-bit integers not supported in WGSL |
+| `void` (as type) | `u32` | WGSL has no void type; placeholder used |
+| Empty structs | Struct with `_dummy: u32` | WGSL requires at least one field |
+
+### Array Handling
+
+- **Multi-dimensional arrays** (e.g., `float mat[3][3]`) are flattened to 1D arrays with linearized indexing. This works correctly when all dimensions are statically known.
+- **Unsized array parameters** (e.g., `float arr[]`) are expanded to a default size of 256 elements.
+- **Array size expressions** must be compile-time constants. Non-constant size expressions are not evaluated.
+
+### Preprocessor Limitations
+
+| Feature | Core (Compiler) | VS Code Extension |
+|---------|-----------------|-------------------|
+| `#include "file.h"` | Supported | Supported (max depth: 32) |
+| `#include <file.h>` | Not supported | Warning (DCTL017) |
+| `#define` (object-like) | Supported | Supported |
+| `#define` (function-like) | Supported | Supported |
+| `#undef` | Not supported | Supported |
+| `#if` / `#ifdef` / `#ifndef` | Basic (`0`/`1` only) | Full expression evaluation |
+| `#elif` | Treated as `#else` | Fully supported |
+| `#pragma`, `#error`, `#warning` | Ignored | Ignored |
+| `#line` | Stripped (commented out) | Stripped |
+| Bitwise operators in `#if` | Not supported | Not supported |
+
+The VS Code extension preprocessor simulates DaVinci Resolve 18.0 with predefined macros: `DEVICE_IS_CUDA=0`, `DEVICE_IS_OPENCL=0`, `DEVICE_IS_METAL=0`.
+
+### Semantic Analysis
+
+- **Forward declaration** signature compatibility is not fully checked — conflicting overloads with the same name may not be detected.
+- **Implicit numeric conversions** between `int`, `float`, `double`, `half`, and `bool` are broadly allowed, which may mask type errors that WGSL would reject at runtime.
+- **Scalar-to-vector broadcast** in function arguments is not checked — WGSL requires explicit constructors (e.g., `make_float3(x, x, x)`).
+- **UI parameters** (`DEFINE_UI_PARAMS`) can only be used directly inside the `transform` function. Using them in helper functions raises `SEM018`; pass them as function arguments instead.
 
 ### Performance
 

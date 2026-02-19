@@ -826,7 +826,6 @@ function convertExpression(expr: ExpressionNode): RustExpression {
             // Record warning for unsupported expression types
             const syntaxNames: Record<string, string> = {
                 'StatementExpression': 'GCC statement expressions ({ ... })',
-                'CompoundLiteral': 'compound literals',
             };
             const syntaxName = syntaxNames[expr.kind] ?? `'${expr.kind}' expressions`;
             conversionWarnings.push({
