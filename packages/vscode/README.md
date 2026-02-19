@@ -81,6 +81,43 @@ Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for:
 
 Both commands are also available as toolbar buttons when editing `.dctl` files.
 
+## Known Limitations
+
+DCTL Workbench compiles DCTL to [WGSL](https://www.w3.org/TR/WGSL/) for browser-based rendering. Some DCTL features that work in DaVinci Resolve (CUDA/Metal/OpenCL) cannot be represented in WGSL.
+
+### Unsupported DCTL Syntax
+
+| Feature | Example |
+|---------|---------|
+| GCC statement expressions | `({ float t = 1.0f; t; })` |
+| Double pointers | `float** ptr` |
+| Function pointers | `(*funcPtr)(args)` |
+| Pointer-returning functions | `float* getPtr()` |
+| Dynamic array sizes | `float arr[n]` (non-constant `n`) |
+
+### Type Mappings
+
+| DCTL Type | WGSL Mapping | Notes |
+| --------- | ------------ | ----- |
+| `double` | `f32` | Precision reduced to 32-bit |
+| `half` | `f32` | Promoted to 32-bit |
+| `char` | `i32` | Promoted to 32-bit |
+| `long` / `long long` | `i32` / `u32` | 64-bit not supported |
+
+### Preprocessor
+
+- `#include "file.h"` is supported (max depth: 32); `#include <file.h>` is not
+- `#if` / `#ifdef` / `#ifndef` with full expression evaluation
+- Simulates DaVinci Resolve 18.0 (`DEVICE_IS_CUDA=0`, `DEVICE_IS_OPENCL=0`, `DEVICE_IS_METAL=0`)
+
+### Other
+
+- Multi-dimensional arrays are flattened to 1D with linearized indexing
+- Large EXR files may be slow to load (WASM limitation)
+- WebGL2 fallback is slower than WebGPU
+
+For full details, see the [project README](https://github.com/nordsound/dctl-workbench#known-limitations).
+
 ## Requirements
 
 - VS Code 1.109 or later

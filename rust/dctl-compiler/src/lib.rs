@@ -1800,4 +1800,43 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             "Expected non-empty WGSL output"
         );
     }
+
+    /// Test that struct compound literals compile to WGSL struct constructors.
+    /// `(Color){r, g, b}` is parsed as Cast(Struct("Color"), InitializerList)
+    /// and should be compiled to `Color(r, g, b)` in WGSL.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_struct_compound_literal() {
+        let source = r#"
+typedef struct { float r; float g; float b; } Color;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    Color c = (Color){p_R, p_G, p_B};
+    return make_float3(c.r, c.g, c.b);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile failed: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        let errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "Expected no errors for struct compound literal, got: {:?}",
+            errors
+        );
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "Expected non-empty WGSL output\nDiagnostics: {:?}",
+            compile_result.diagnostics
+        );
+        assert!(
+            compile_result.wgsl.contains("Color("),
+            "WGSL should contain struct constructor 'Color('\nWGSL:\n{}",
+            compile_result.wgsl
+        );
+    }
 }
