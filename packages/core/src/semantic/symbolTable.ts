@@ -288,6 +288,13 @@ export class SymbolTable {
     }
 
     /**
+     * Replace an existing struct definition (used when user code redefines a builtin)
+     */
+    replaceStruct(info: StructInfo): void {
+        this.structs.set(info.name, info);
+    }
+
+    /**
      * Look up a struct by name
      */
     lookupStruct(name: string): StructInfo | undefined {
