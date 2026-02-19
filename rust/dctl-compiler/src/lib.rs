@@ -1573,6 +1573,53 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         );
     }
 
+    /// Test that struct pointer member access via -> compiles correctly.
+    /// `ptr->field` should be equivalent to `(*ptr).field`.
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_struct_pointer_member_access() {
+        let source = r#"
+typedef struct {
+    float x;
+    float y;
+} point_t;
+
+__DEVICE__ float getSum(__PRIVATE__ point_t* p) {
+    return p->x + p->y;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    point_t pt;
+    pt.x = p_R;
+    pt.y = p_G;
+    float val = getSum(&pt);
+    return make_float3(val, val, val);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        for d in &compile_result.diagnostics {
+            eprintln!("  [{:?}] line {}: {}", d.severity, d.line, d.message);
+        }
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Should have no errors for struct pointer member access, got: {:?}",
+            all_errors
+        );
+
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "WGSL output should not be empty"
+        );
+    }
+
     /// Test that multi-variable for-loop initializers compile correctly.
     /// C allows `for (int a = 0, b = 0; ...)` which declares multiple variables.
     /// The Rust compiler must handle all declarators, not just the first.
@@ -1619,6 +1666,40 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         assert!(
             !compile_result.wgsl.is_empty(),
             "WGSL output should not be empty"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_2d_array_row_access() {
+        let source = r#"
+__DEVICE__ void use_str(char str[]) {
+}
+
+__DEVICE__ void test_fn(char names[][10]) {
+    use_str(names[0]);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Expected no errors, got: {:?}",
+            all_errors
+        );
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "Expected non-empty WGSL output"
         );
     }
 }

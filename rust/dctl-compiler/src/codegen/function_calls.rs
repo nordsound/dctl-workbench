@@ -1653,8 +1653,32 @@ impl NagaModuleGenerator {
                 None
             }
             NagaExpr::Access { base, .. } | NagaExpr::AccessIndex { base, .. } => {
-                // Recursively check the base expression
-                self.get_array_source_size(&ctx.expressions[*base], ctx)
+                // When indexing into a 2D array (e.g., names[0] from char names[][10]),
+                // the result is the inner array. We need its size, not the outer array's size.
+                // Check if the base is a variable whose type is array-of-arrays.
+                let base_expr = &ctx.expressions[*base];
+                match base_expr {
+                    NagaExpr::LocalVariable(local_handle) => {
+                        let local_ty = ctx.local_variables[*local_handle].ty;
+                        if let TypeInner::Array { base: elem_type, .. } = &self.module.types[local_ty].inner {
+                            // The element type of the outer array is the type of the Access result
+                            if let TypeInner::Array { size: naga::ArraySize::Constant(n), .. } = &self.module.types[*elem_type].inner {
+                                return Some(n.get());
+                            }
+                        }
+                    }
+                    NagaExpr::GlobalVariable(global_handle) => {
+                        let global_ty = self.module.global_variables[*global_handle].ty;
+                        if let TypeInner::Array { base: elem_type, .. } = &self.module.types[global_ty].inner {
+                            if let TypeInner::Array { size: naga::ArraySize::Constant(n), .. } = &self.module.types[*elem_type].inner {
+                                return Some(n.get());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                // Fallback: recursively check the base expression
+                self.get_array_source_size(base_expr, ctx)
             }
             NagaExpr::GlobalVariable(global_handle) => {
                 // Check global variable's type

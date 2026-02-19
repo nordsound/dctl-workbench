@@ -504,7 +504,7 @@ export class DctlParser {
         // Handle array parameters (including multi-dimensional: float mat[3][3])
         // For unspecified dimensions like arr[], we use -1 as sentinel value
         const arraySizes: number[] = [];
-        const arraySizeExprs: ExpressionNode[] = [];
+        const arraySizeExprs: (ExpressionNode | null)[] = [];
         while (this.match(TokenType.OPEN_BRACKET)) {
             type.isArray = true;
             if (!this.check(TokenType.CLOSE_BRACKET)) {
@@ -518,6 +518,7 @@ export class DctlParser {
                 // Empty brackets [] - unspecified dimension (e.g., char arr[][10])
                 // Use -1 as sentinel for unspecified dimensions
                 arraySizes.push(-1);
+                arraySizeExprs.push(null);  // Maintain alignment with arraySizes
             }
             this.consume(TokenType.CLOSE_BRACKET, 'Expected ]');
         }
@@ -530,7 +531,7 @@ export class DctlParser {
             }
         }
         // Store expressions for const variable evaluation in codegen
-        if (arraySizeExprs.length > 0) {
+        if (arraySizeExprs.some(e => e !== null)) {
             type.arraySizeExprs = arraySizeExprs;
         }
 
@@ -1038,7 +1039,7 @@ export class DctlParser {
             // Handle array declaration (including multi-dimensional: float mat[3][3])
             // For unspecified dimensions like arr[], we use -1 as sentinel value
             const arraySizes: number[] = [];
-            const arraySizeExprs: ExpressionNode[] = [];
+            const arraySizeExprs: (ExpressionNode | null)[] = [];
             while (this.match(TokenType.OPEN_BRACKET)) {
                 type.isArray = true;
                 if (!this.check(TokenType.CLOSE_BRACKET)) {
@@ -1050,6 +1051,7 @@ export class DctlParser {
                 } else {
                     // Empty brackets [] - unspecified dimension
                     arraySizes.push(-1);
+                    arraySizeExprs.push(null);  // Maintain alignment with arraySizes
                 }
                 this.consume(TokenType.CLOSE_BRACKET, 'Expected ]');
             }
@@ -1061,7 +1063,7 @@ export class DctlParser {
                 }
             }
             // Store expressions for const variable evaluation in codegen
-            if (arraySizeExprs.length > 0) {
+            if (arraySizeExprs.some(e => e !== null)) {
                 type.arraySizeExprs = arraySizeExprs;
             }
 
@@ -1092,7 +1094,7 @@ export class DctlParser {
         // Handle array (including multi-dimensional: float mat[3][3])
         // For unspecified dimensions like arr[], we use -1 as sentinel value
         const arraySizes: number[] = [];
-        const arraySizeExprs: ExpressionNode[] = [];
+        const arraySizeExprs: (ExpressionNode | null)[] = [];
         while (this.match(TokenType.OPEN_BRACKET)) {
             type.isArray = true;
             if (!this.check(TokenType.CLOSE_BRACKET)) {
@@ -1104,6 +1106,7 @@ export class DctlParser {
             } else {
                 // Empty brackets [] - unspecified dimension
                 arraySizes.push(-1);
+                arraySizeExprs.push(null);  // Maintain alignment with arraySizes
             }
             this.consume(TokenType.CLOSE_BRACKET, 'Expected ]');
         }
@@ -1116,7 +1119,7 @@ export class DctlParser {
             }
         }
         // Store expressions for const variable evaluation in codegen
-        if (arraySizeExprs.length > 0) {
+        if (arraySizeExprs.some(e => e !== null)) {
             type.arraySizeExprs = arraySizeExprs;
         }
 

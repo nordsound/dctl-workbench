@@ -101,7 +101,7 @@ export interface TypeNode extends ASTNode {
     isArray: boolean;
     arraySize?: number | null;  // null for unsized arrays (single dimension)
     arraySizes?: number[];      // Multi-dimensional array sizes, e.g., [3, 3] for float[3][3]
-    arraySizeExprs?: ExpressionNode[];  // Original size expressions for const variable evaluation
+    arraySizeExprs?: (ExpressionNode | null)[];  // Original size expressions for const variable evaluation (null for empty brackets [])
     isConst: boolean;
 }
 

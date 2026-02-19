@@ -862,6 +862,51 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             `Got: ${errors.map(d => `[${d.code}] ${d.message}`).join('; ')}`
         );
     });
+
+    test('2D array parameter row access should not produce DCTL010 InvalidSubAccess', async function () {
+        this.timeout(30000);
+
+        // In DCTL/C, a 2D array parameter like `char names[][10]` is common.
+        // Indexing a row (names[i]) should produce a 1D array (char[10]).
+        // Without proper handling, the codegen produces InvalidSubAccess in naga.
+        const source =
+`__DEVICE__ void use_str(char str[]) {
+}
+
+__DEVICE__ void test_fn(char names[][10]) {
+    use_str(names[0]);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should NOT have DCTL010 (WGSL generation failed / InvalidSubAccess)
+        const dctl010Errors = diagnostics.filter(d => d.code === 'DCTL010');
+        assert.strictEqual(
+            dctl010Errors.length,
+            0,
+            `Struct pointer arrow access should not produce DCTL010 InvalidSubAccess. ` +
+            `Got: ${dctl010Errors.map(d => d.message).join('; ')}`
+        );
+
+        // Should NOT have any errors at all
+        const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+        assert.strictEqual(
+            errors.length,
+            0,
+            `Should have no errors for struct pointer member access. ` +
+            `Got: ${errors.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+    });
 });
 
 suite('DCTL Include File Diagnostics Tests', () => {
