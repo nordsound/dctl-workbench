@@ -103,6 +103,14 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
             .map(w => ({
                 ...w,
                 line: w.line - lineOffset + 1,
+                // Remap line numbers embedded in message text (e.g. "declared at line 93")
+                message: w.message.replace(
+                    /declared at line (\d+)/,
+                    (_, lineStr) => {
+                        const refLine = parseInt(lineStr, 10);
+                        return `declared at line ${Math.max(1, refLine - lineOffset + 1)}`;
+                    }
+                ),
             }));
 
         const errors = analysisResult.errors

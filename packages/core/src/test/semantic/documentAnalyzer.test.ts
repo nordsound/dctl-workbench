@@ -872,6 +872,58 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+describe('analyzeDocument SEM_W001 variable shadowing', () => {
+    it('should report correct line numbers for shadowing warning', () => {
+        // Line 1: '' (empty from template literal)
+        // Line 2: float x = 1.0f;    <-- outer variable
+        // Line 3: (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float x = 2.0f;    <-- shadows outer, SEM_W001
+        // Line 6:     return make_float3(x, x, x);
+        // Line 7: }
+        const source = `
+float x = 1.0f;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float x = 2.0f;
+    return make_float3(x, x, x);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.code === 'SEM_W001');
+        assert.ok(w, 'should have SEM_W001 warning for variable shadowing');
+        assert.equal(w.line, 5, `shadowing variable should be at line 5, got ${w.line}`);
+        assert.ok(
+            w.message.includes('declared at line 2'),
+            `message should reference original line 2, got: ${w.message}`
+        );
+    });
+
+    it('should report correct line for UI param shadowing', () => {
+        // Line 1: '' (empty)
+        // Line 2: DEFINE_UI_PARAMS(gain, ...)    <-- UI param
+        // Line 3: (empty)
+        // Line 4: __DEVICE__ float3 transform(...) {
+        // Line 5:     float gain = 2.0f;    <-- shadows UI param, SEM_W001
+        // Line 6:     return make_float3(gain, gain, gain);
+        // Line 7: }
+        const source = `
+DEFINE_UI_PARAMS(gain, Gain, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float gain = 2.0f;
+    return make_float3(gain, gain, gain);
+}`;
+        const result = analyzeDocument(source);
+        const w = result.warnings.find(w => w.code === 'SEM_W001' && w.message.includes('gain'));
+        assert.ok(w, 'should have SEM_W001 warning for gain shadowing');
+        assert.equal(w.line, 5, `shadowing variable should be at line 5, got ${w.line}`);
+        assert.ok(
+            w.message.includes('declared at line 2'),
+            `message should reference original line 2 (not preprocessed), got: ${w.message}`
+        );
+    });
+});
+
 describe('getMemberCompletions', () => {
     it('should return x,y,z for float3 type', () => {
         const symbolTable = new SymbolTable();
