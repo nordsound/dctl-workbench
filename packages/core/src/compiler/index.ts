@@ -217,10 +217,19 @@ export class DctlCompiler {
             };
 
             // Step 4: Convert to Rust AST format
-            const rustAstJson = convertAstToRustFormat(filteredAst);
+            const conversionResult = convertAstToRustFormat(filteredAst);
+
+            // If there are conversion warnings (unsupported syntax), return them as errors
+            // These are features that may work in DaVinci Resolve but cannot compile to WGSL
+            if (conversionResult.warnings.length > 0) {
+                return {
+                    error: true,
+                    message: conversionResult.warnings.map(w => w.message).join('\n'),
+                };
+            }
 
             // Step 5: Compile via Rust backend
-            const resultJson = this.module.compile_from_ast(rustAstJson);
+            const resultJson = this.module.compile_from_ast(conversionResult.json);
             const result = JSON.parse(resultJson);
 
             // Check if the result is an error from the Rust backend

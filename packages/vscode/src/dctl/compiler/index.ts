@@ -229,10 +229,19 @@ export class DctlCompiler {
             // DEFINE_UI_PARAMS macros to variable declarations (e.g., "float g_red;")
             // These are parsed as regular variables, not uniform buffer members
             // This allows the variables to be modified in the transform function
-            const rustAstJson = convertAstToRustFormat(filteredAst);
+            const conversionResult = convertAstToRustFormat(filteredAst);
+
+            // If there are conversion warnings (unsupported syntax), return them as errors
+            // These are features that may work in DaVinci Resolve but cannot compile to WGSL
+            if (conversionResult.warnings.length > 0) {
+                return {
+                    error: true,
+                    message: conversionResult.warnings.map(w => w.message).join('\n'),
+                };
+            }
 
             // Step 5: Compile via Rust backend
-            const resultJson = this.module.compile_from_ast(rustAstJson);
+            const resultJson = this.module.compile_from_ast(conversionResult.json);
             const result = JSON.parse(resultJson);
 
             // Step 6: Adjust diagnostic line numbers to remove DCTL_TYPE_DEFINITIONS header offset
