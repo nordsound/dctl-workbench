@@ -13,6 +13,16 @@ use std::collections::HashMap;
 use std::num::NonZeroU32;
 
 impl NagaModuleGenerator {
+    /// Extract the innermost (base) element type from a possibly nested Array type.
+    /// e.g., Array(Array(Int, 10), 256) -> Int
+    /// e.g., Array(Float, 10) -> Float
+    pub(super) fn extract_base_element_type(dctl_type: &DctlType) -> DctlType {
+        match dctl_type {
+            DctlType::Array(inner, _) => Self::extract_base_element_type(inner),
+            other => other.clone(),
+        }
+    }
+
     /// Register built-in types in the Naga module
     pub(super) fn register_builtin_types(&mut self) {
         // Scalar types
@@ -751,12 +761,11 @@ impl NagaModuleGenerator {
                 }
                 Expression::Identifier(ident) => {
                     // Reached the base array identifier
-                    if indices.len() > 1 {
+                    if !indices.is_empty() {
                         // Reverse indices since we collected them outer-to-inner
                         indices.reverse();
                         return Some((ident.name.clone(), indices));
                     } else {
-                        // Single index, not multi-dimensional
                         return None;
                     }
                 }

@@ -1702,4 +1702,102 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
             "Expected non-empty WGSL output"
         );
     }
+
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_local_2d_array_row_access() {
+        // Local variable 2D array with row passed to function (both dims specified)
+        let source = r#"
+__DEVICE__ void use_str(char str[]) {}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    char names[3][10] = {};
+    use_str(names[0]);
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Expected no errors for local 2D array row access, got: {:?}",
+            all_errors
+        );
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "Expected non-empty WGSL output"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_local_2d_array_row_access_variable_index() {
+        // Local 2D array with variable index row access in a loop
+        let source = r#"
+__DEVICE__ void use_str(char str[]) {}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    char names[3][10] = {};
+    for (int i = 0; i < 3; i++) {
+        use_str(names[i]);
+    }
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Expected no errors for variable-index row access, got: {:?}",
+            all_errors
+        );
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "Expected non-empty WGSL output"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "native-parser")]
+    fn test_local_2d_array_row_with_same_size_param() {
+        // Local 2D array row passed to function with matching array size
+        let source = r#"
+__DEVICE__ void use_arr(int arr[10]) {}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    int names[3][10] = {};
+    use_arr(names[0]);
+    return make_float3(p_R, p_G, p_B);
+}
+"#;
+        let result = compile(source);
+        assert!(result.is_ok(), "Compile should not hard-fail: {:?}", result.err());
+        let compile_result = result.unwrap();
+
+        let all_errors: Vec<_> = compile_result.diagnostics.iter()
+            .filter(|d| matches!(d.severity, DiagnosticSeverity::Error))
+            .collect();
+        assert!(
+            all_errors.is_empty(),
+            "Expected no errors for same-size param, got: {:?}",
+            all_errors
+        );
+        assert!(
+            !compile_result.wgsl.is_empty(),
+            "Expected non-empty WGSL output"
+        );
+    }
 }

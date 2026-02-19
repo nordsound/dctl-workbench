@@ -41,7 +41,18 @@ impl NagaModuleGenerator {
             let original_param_type = self.convert_parameter_type(param);
             let mut param_type = original_param_type.clone();
 
+            // Convert unsized arrays to a default size (256) for function parameters
+            // WGSL doesn't support dynamic arrays in function scope
+            let is_unsized_array = matches!(&original_param_type, DctlType::Array(_, None));
+
+            if let DctlType::Array(ref inner, None) = original_param_type {
+                // Use default size of 256 elements
+                param_type = DctlType::Array(inner.clone(), Some(256));
+            }
+
             // Check if this is a multi-dimensional array parameter and track dimensions
+            // This runs AFTER unsized expansion so that names[][10] with default 256
+            // gets dims [256, 10] and is flattened consistently with local 2D arrays
             if param.param_type.array_dims.len() > 1 {
                 let mut dims: Vec<usize> = Vec::new();
                 let mut all_known = true;
@@ -57,24 +68,21 @@ impl NagaModuleGenerator {
                             }
                         }
                         _ => {
-                            all_known = false;
-                            break;
+                            // Unspecified dim: use default 256 (matching unsized expansion)
+                            dims.push(256);
                         }
                     }
                 }
                 if all_known && dims.len() > 1 {
                     // Store dimensions for this parameter
-                    self.multidim_array_dims.insert(param.name.clone(), dims);
+                    self.multidim_array_dims.insert(param.name.clone(), dims.clone());
+
+                    // Flatten nested array type to 1D for consistency with local 2D arrays
+                    // e.g., Array(Array(Int, 10), 256) -> Array(Int, 2560)
+                    let flat_size: usize = dims.iter().product();
+                    let base_type = Self::extract_base_element_type(&param_type);
+                    param_type = DctlType::Array(Box::new(base_type), Some(flat_size));
                 }
-            }
-
-            // Convert unsized arrays to a default size (256) for function parameters
-            // WGSL doesn't support dynamic arrays in function scope
-            let is_unsized_array = matches!(&original_param_type, DctlType::Array(_, None));
-
-            if let DctlType::Array(ref inner, None) = original_param_type {
-                // Use default size of 256 elements
-                param_type = DctlType::Array(inner.clone(), Some(256));
             }
 
             // Track unsized array params early for proper handling later
@@ -132,7 +140,13 @@ impl NagaModuleGenerator {
 
             // Track unsized array params with actual type handle for call-site expansion
             if is_unsized_array {
-                unsized_array_params_info.push((idx, type_handle, 256));
+                // For flattened 2D params (e.g., char names[][10] -> array<i32, 2560>),
+                // use the actual flat size, not just 256
+                let target_size = match &final_param_type {
+                    DctlType::Array(_, Some(size)) => *size as u32,
+                    _ => 256,
+                };
+                unsized_array_params_info.push((idx, type_handle, target_size));
             }
 
             // Sanitize parameter name for WGSL compatibility
