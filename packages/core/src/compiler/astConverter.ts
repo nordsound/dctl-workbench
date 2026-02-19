@@ -153,8 +153,10 @@ type RustStatement =
     | { kind: 'Continue'; loc: RustLocation }
     | { kind: 'Empty'; loc: RustLocation };
 
+type RustVariableDecl = { name: string; var_type: RustType; initializer: RustExpression | null; is_const: boolean; modifiers: RustModifier[]; loc: RustLocation };
+
 type RustForInit =
-    | { Variable: { name: string; var_type: RustType; initializer: RustExpression | null; is_const: boolean; modifiers: RustModifier[]; loc: RustLocation } }
+    | { Variables: RustVariableDecl[] }
     | { Expression: RustExpression };
 
 interface RustSwitchCase {
@@ -462,7 +464,11 @@ function convertType(type: TypeNode): RustType {
         } else if (type.arraySizeExprs && type.arraySizeExprs.length > 0) {
             // VLA with expression size
             for (const sizeExpr of type.arraySizeExprs) {
-                array_dims.push({ Expression: convertExpression(sizeExpr) });
+                if (sizeExpr) {
+                    array_dims.push({ Expression: convertExpression(sizeExpr) });
+                } else {
+                    array_dims.push('Unspecified');
+                }
             }
         } else {
             array_dims.push('Unspecified');
@@ -552,31 +558,27 @@ function convertStatement(stmt: StatementNode): RustStatement {
 
             if (forStmt.init) {
                 if (Array.isArray(forStmt.init)) {
-                    // Take the first variable declaration
-                    if (forStmt.init.length > 0) {
-                        const firstDecl = forStmt.init[0];
-                        init = {
-                            Variable: {
-                                name: firstDecl.name,
-                                var_type: convertType(firstDecl.type),
-                                initializer: firstDecl.initializer ? convertExpression(firstDecl.initializer) : null,
-                                is_const: firstDecl.isConst,
-                                modifiers: [],
-                                loc: convertLocation(firstDecl.loc),
-                            },
-                        };
-                    }
+                    init = {
+                        Variables: forStmt.init.map(decl => ({
+                            name: decl.name,
+                            var_type: convertType(decl.type),
+                            initializer: decl.initializer ? convertExpression(decl.initializer) : null,
+                            is_const: decl.isConst,
+                            modifiers: [],
+                            loc: convertLocation(decl.loc),
+                        })),
+                    };
                 } else if (forStmt.init.kind === 'VariableDeclaration') {
                     const varDecl = forStmt.init as VariableDeclarationNode;
                     init = {
-                        Variable: {
+                        Variables: [{
                             name: varDecl.name,
                             var_type: convertType(varDecl.type),
                             initializer: varDecl.initializer ? convertExpression(varDecl.initializer) : null,
                             is_const: varDecl.isConst,
                             modifiers: [],
                             loc: convertLocation(varDecl.loc),
-                        },
+                        }],
                     };
                 } else {
                     init = { Expression: convertExpression(forStmt.init as ExpressionNode) };

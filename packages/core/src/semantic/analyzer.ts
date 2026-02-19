@@ -1134,7 +1134,7 @@ export class SemanticAnalyzer {
         // For case 2, we check if there's an arraySizeExprs - if so, the expression exists but couldn't be
         // evaluated at parse time (e.g., const variable reference). We defer to codegen evaluation.
 
-        const hasExprsForSize = type.arraySizeExprs && type.arraySizeExprs.length > 0;
+        const hasExprsForSize = type.arraySizeExprs && type.arraySizeExprs.some(e => e !== null);
 
         // Check single dimension array
         if (type.isArray && type.arraySize !== null && type.arraySize !== undefined) {
@@ -1166,6 +1166,7 @@ export class SemanticAnalyzer {
                     const hasUnevaluatedExpr =
                         type.arraySizeExprs &&
                         i < type.arraySizeExprs.length &&
+                        type.arraySizeExprs[i] !== null &&
                         size === -1;
                     if (!isUnspecifiedAllowed && !hasUnevaluatedExpr) {
                         this.addError(
