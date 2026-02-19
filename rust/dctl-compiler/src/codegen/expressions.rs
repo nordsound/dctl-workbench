@@ -1051,6 +1051,123 @@ impl NagaModuleGenerator {
                                 );
                                 return Ok(element_expr);
                             }
+                        } else if indices.len() < dims.len() {
+                            // Partial row extraction from flattened multi-dim array
+                            // e.g., names[i] on flattened array<i32, M*N> with dims [M, N]
+                            // Extract a row of inner_size elements into a local array variable
+                            let inner_size: usize = dims[indices.len()..].iter().product();
+
+                            // Compute base offset using compute_flat_index
+                            // For dims [M, N] and indices [i]: base = i * N
+                            let base_offset = self.compute_flat_index(&indices, &dims, ctx)?;
+
+                            // Get the flat array variable pointer and extract element type info
+                            let (array_ptr, elem_type_handle, stride) = if let Some(&local_handle) = ctx.local_vars.get(&array_name) {
+                                let local_ty = ctx.local_variables[local_handle].ty;
+                                if let TypeInner::Array { base, stride, .. } = &self.module.types[local_ty].inner {
+                                    let ptr = ctx.expressions.append(NagaExpr::LocalVariable(local_handle), Span::UNDEFINED);
+                                    (ptr, *base, *stride)
+                                } else {
+                                    return Err(CodegenError::Internal(format!(
+                                        "Expected array type for multidim variable '{}'", array_name
+                                    )));
+                                }
+                            } else if let Some(&global_handle) = self.global_handles.get(&array_name) {
+                                let global_ty = self.module.global_variables[global_handle].ty;
+                                if let TypeInner::Array { base, stride, .. } = &self.module.types[global_ty].inner {
+                                    let ptr = ctx.expressions.append(NagaExpr::GlobalVariable(global_handle), Span::UNDEFINED);
+                                    (ptr, *base, *stride)
+                                } else {
+                                    return Err(CodegenError::Internal(format!(
+                                        "Expected array type for multidim global variable '{}'", array_name
+                                    )));
+                                }
+                            } else {
+                                return Err(CodegenError::Internal(format!(
+                                    "Multidim array '{}' not found for partial row extraction", array_name
+                                )));
+                            };
+
+                            // Create inner array type: array<elem_type, inner_size>
+                            let inner_array_type = self.module.types.insert(
+                                naga::Type {
+                                    name: None,
+                                    inner: TypeInner::Array {
+                                        base: elem_type_handle,
+                                        size: naga::ArraySize::Constant(
+                                            std::num::NonZeroU32::new(inner_size as u32).unwrap()
+                                        ),
+                                        stride,
+                                    },
+                                },
+                                Span::UNDEFINED,
+                            );
+
+                            // Create a local variable to hold the extracted row
+                            let row_var_name = format!("_row_extract_{}", ctx.local_vars.len());
+                            let row_local = naga::LocalVariable {
+                                name: Some(row_var_name.clone().into()),
+                                ty: inner_array_type,
+                                init: None,
+                            };
+                            let row_local_handle = ctx.local_variables.append(row_local, Span::UNDEFINED);
+                            let row_local_ptr = ctx.expressions.append(
+                                NagaExpr::LocalVariable(row_local_handle),
+                                Span::UNDEFINED,
+                            );
+
+                            // Extract elements from the flat array and store into the local row
+                            for k in 0..inner_size {
+                                // Compute flat index: base_offset + k
+                                let flat_idx = if k == 0 {
+                                    base_offset
+                                } else {
+                                    let k_literal = ctx.expressions.append(
+                                        NagaExpr::Literal(Literal::I32(k as i32)),
+                                        Span::UNDEFINED,
+                                    );
+                                    ctx.expressions.append(
+                                        NagaExpr::Binary {
+                                            op: naga::BinaryOperator::Add,
+                                            left: base_offset,
+                                            right: k_literal,
+                                        },
+                                        Span::UNDEFINED,
+                                    )
+                                };
+
+                                // Access element from flat array and load its value
+                                let elem_ptr = ctx.expressions.append(
+                                    NagaExpr::Access { base: array_ptr, index: flat_idx },
+                                    Span::UNDEFINED,
+                                );
+                                let elem_val = ctx.expressions.append(
+                                    NagaExpr::Load { pointer: elem_ptr },
+                                    Span::UNDEFINED,
+                                );
+
+                                // Emit the Load so it's available for the Store
+                                ctx.pending_stmts.push((
+                                    NagaStmt::Emit(naga::Range::new_from_bounds(elem_val, elem_val)),
+                                    Span::UNDEFINED,
+                                ));
+
+                                // Store into row local variable at index k
+                                let row_elem_ptr = ctx.expressions.append(
+                                    NagaExpr::AccessIndex { base: row_local_ptr, index: k as u32 },
+                                    Span::UNDEFINED,
+                                );
+                                ctx.pending_stmts.push((
+                                    NagaStmt::Store { pointer: row_elem_ptr, value: elem_val },
+                                    Span::UNDEFINED,
+                                ));
+                            }
+
+                            // Return Load of the local row variable (the full row array value)
+                            return Ok(ctx.expressions.append(
+                                NagaExpr::Load { pointer: row_local_ptr },
+                                Span::UNDEFINED,
+                            ));
                         }
                     }
                 }
