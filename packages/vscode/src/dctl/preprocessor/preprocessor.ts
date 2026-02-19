@@ -345,6 +345,7 @@ export class DctlPreprocessor {
         const lines = source.split('\n');
         const result: string[] = [];
         let currentLine = '';
+        let continuationCount = 0;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -353,16 +354,25 @@ export class DctlPreprocessor {
             if (line.endsWith('\\')) {
                 // Remove the backslash and join with next line
                 currentLine += line.slice(0, -1);
+                continuationCount++;
             } else {
                 // No continuation, flush current line
                 result.push(currentLine + line);
+                // Add empty lines to preserve original line numbering
+                for (let j = 0; j < continuationCount; j++) {
+                    result.push('');
+                }
                 currentLine = '';
+                continuationCount = 0;
             }
         }
 
         // Handle any remaining content
         if (currentLine) {
             result.push(currentLine);
+            for (let j = 0; j < continuationCount; j++) {
+                result.push('');
+            }
         }
 
         return result.join('\n');
