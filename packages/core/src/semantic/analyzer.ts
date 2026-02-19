@@ -777,7 +777,10 @@ export class SemanticAnalyzer {
         // Check if UI parameter is used outside the transform function
         // DaVinci Resolve expands UI params as local variables inside transform(),
         // so they are not accessible from helper functions.
-        if (this.uiParamNames.has(expr.name) && this.currentFunctionName && this.currentFunctionName !== 'transform') {
+        // Skip if a local variable shadows the UI param (resolved symbol differs from global).
+        const globalSymbol = this.uiParamNames.has(expr.name) ? this.symbolTable.lookupGlobal(expr.name) : undefined;
+        if (this.uiParamNames.has(expr.name) && this.currentFunctionName && this.currentFunctionName !== 'transform'
+            && symbol === globalSymbol) {
             this.addError(
                 'SEM018',
                 `UI parameter '${expr.name}' used in helper function '${this.currentFunctionName}'. ` +
