@@ -1235,8 +1235,8 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             if (state.enabled && state.filePath) {
                 const rawDctlSource = fs.readFileSync(state.filePath, 'utf-8');
 
-                // For Rust compiler (Compute Shader path): pass raw source
-                // Rust compiler internally handles preprocessing (macros, includes) and parsing
+                // Pass raw source to Rust compiler; compile() resolves #include
+                // via dctlFilePath option passed through dctlOptions
                 dctlSource = rawDctlSource;
 
                 // Create DctlInfo for Rust compiler path (no transpilation needed)
@@ -1269,6 +1269,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 useUniformBuffer: state.useUniformBuffer,
                 useRustCompiler: true,
                 dctlSource,
+                dctlFilePath: state.filePath ?? undefined,
                 applyACES2GamutCompression: state.applyRgc,
                 peakLuminance: state.rgcPeakLuminance,
             };
