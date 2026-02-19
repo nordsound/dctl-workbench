@@ -137,14 +137,16 @@ export class SemanticAnalyzer {
     private currentFunctionReturnType?: TypeInfo;
     private currentFunctionName?: string;
     private uiParamNames: Set<string> = new Set();
+    private headerLineCount: number = 0;
 
     /**
      * Analyze a DCTL module
      * @param ast - The parsed AST
      * @param options - Optional analysis options
      * @param options.uiParamNames - Names of UI parameters from DEFINE_UI_PARAMS (from preprocessor)
+     * @param options.headerLineCount - Number of lines in the prepended type definitions header
      */
-    analyze(ast: ModuleNode, options?: { uiParamNames?: string[] }): SemanticAnalysisResult {
+    analyze(ast: ModuleNode, options?: { uiParamNames?: string[]; headerLineCount?: number }): SemanticAnalysisResult {
         this.symbolTable = new SymbolTable();
         this.errors = [];
         this.warnings = [];
@@ -155,6 +157,7 @@ export class SemanticAnalyzer {
         this.currentFunctionReturnType = undefined;
         this.currentFunctionName = undefined;
         this.uiParamNames = new Set(options?.uiParamNames ?? []);
+        this.headerLineCount = options?.headerLineCount ?? 0;
 
         // Pass 0: Collect UI parameters from macros (DEFINE_UI_PARAMS)
         this.collectUIParameters(ast);
@@ -327,7 +330,13 @@ export class SemanticAnalyzer {
         };
 
         if (!this.symbolTable.defineStruct(structInfo)) {
-            this.addError('SEM009', `Struct '${node.name}' is already defined`, node.loc);
+            // Allow user code to redefine builtin structs from the type definitions header
+            const existing = this.symbolTable.lookupStruct(node.name);
+            if (existing && this.headerLineCount > 0 && existing.loc.line < this.headerLineCount) {
+                this.symbolTable.replaceStruct(structInfo);
+            } else {
+                this.addError('SEM009', `Struct '${node.name}' is already defined`, node.loc);
+            }
         }
     }
 
