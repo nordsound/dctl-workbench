@@ -83,6 +83,7 @@ export function analyzeDocument(source: string): DocumentAnalysisResult {
         const analyzer = new SemanticAnalyzer();
         const analysisResult = analyzer.analyze(parseResult.ast, {
             uiParamNames: preprocessed.uiParamNames,
+            headerLineCount: lineOffset,
         });
         const { symbolTable } = analysisResult;
 

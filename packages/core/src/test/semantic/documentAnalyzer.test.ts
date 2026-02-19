@@ -872,6 +872,47 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     });
 });
 
+describe('analyzeDocument SEM009 builtin type redefinition', () => {
+    it('should not error when user redefines builtin struct float3x3', () => {
+        const source = `
+typedef struct {
+    float3 x, y, z;
+} float3x3;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const sem009 = result.errors.find(e => e.code === 'SEM009' && e.message.includes('float3x3'));
+        assert.ok(!sem009, `Should not fire SEM009 for builtin struct redefinition. Got: ${sem009?.message ?? 'none'}`);
+    });
+
+    it('should not error when user redefines builtin typedef', () => {
+        const source = `
+typedef float mat3[9];
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const sem009 = result.errors.find(e => e.code === 'SEM009' && e.message.includes('mat3'));
+        assert.ok(!sem009, `Should not fire SEM009 for builtin typedef redefinition. Got: ${sem009?.message ?? 'none'}`);
+    });
+
+    it('should still error for duplicate user-defined struct', () => {
+        const source = `
+typedef struct { float a; } MyStruct;
+typedef struct { float b; } MyStruct;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+        const result = analyzeDocument(source);
+        const sem009 = result.errors.find(e => e.code === 'SEM009' && e.message.includes('MyStruct'));
+        assert.ok(sem009, 'Should fire SEM009 for duplicate user-defined struct');
+    });
+});
+
 describe('analyzeDocument SEM_W001 variable shadowing', () => {
     it('should report correct line numbers for shadowing warning', () => {
         // Line 1: '' (empty from template literal)
