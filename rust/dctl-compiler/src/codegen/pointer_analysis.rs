@@ -248,13 +248,15 @@ impl NagaModuleGenerator {
                 self.collect_local_arrays_from_stmt(func_name, &do_while_stmt.body);
             }
             Statement::For(for_stmt) => {
-                if let Some(ForInit::Variable(var_decl)) = &for_stmt.init {
-                    let var_type = self.convert_ast_type(&var_decl.var_type);
-                    if let DctlType::Array(_, Some(size)) = var_type {
-                        self.local_array_sizes.insert(
-                            (func_name.to_string(), var_decl.name.clone()),
-                            size,
-                        );
+                if let Some(ForInit::Variables(var_decls)) = &for_stmt.init {
+                    for var_decl in var_decls {
+                        let var_type = self.convert_ast_type(&var_decl.var_type);
+                        if let DctlType::Array(_, Some(size)) = var_type {
+                            self.local_array_sizes.insert(
+                                (func_name.to_string(), var_decl.name.clone()),
+                                size,
+                            );
+                        }
                     }
                 }
                 self.collect_local_arrays_from_stmt(func_name, &for_stmt.body);

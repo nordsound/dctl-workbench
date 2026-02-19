@@ -386,18 +386,20 @@ impl SemanticAnalyzer {
                 // Analyze init
                 if let Some(init) = &for_stmt.init {
                     match init {
-                        ForInit::Variable(var_decl) => {
-                            let var_type = self.convert_type(&var_decl.var_type);
-                            self.symbols
-                                .define(Symbol {
-                                    name: var_decl.name.clone(),
-                                    symbol_type: var_type,
-                                    kind: SymbolKind::Variable,
-                                    line: var_decl.loc.line,
-                                })
-                                .ok();
-                            if let Some(init_expr) = &var_decl.initializer {
-                                self.analyze_expression(init_expr);
+                        ForInit::Variables(var_decls) => {
+                            for var_decl in var_decls {
+                                let var_type = self.convert_type(&var_decl.var_type);
+                                self.symbols
+                                    .define(Symbol {
+                                        name: var_decl.name.clone(),
+                                        symbol_type: var_type,
+                                        kind: SymbolKind::Variable,
+                                        line: var_decl.loc.line,
+                                    })
+                                    .ok();
+                                if let Some(init_expr) = &var_decl.initializer {
+                                    self.analyze_expression(init_expr);
+                                }
                             }
                         }
                         ForInit::Expression(expr) => {

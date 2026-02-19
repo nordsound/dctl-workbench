@@ -285,7 +285,7 @@ pub struct ForStmt {
 /// For loop initializer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ForInit {
-    Variable(VariableDecl),
+    Variables(Vec<VariableDecl>),
     Expression(Expression),
 }
 

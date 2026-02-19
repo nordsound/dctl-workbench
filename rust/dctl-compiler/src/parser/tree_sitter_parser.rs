@@ -512,10 +512,11 @@ impl TreeSitterParser {
     fn parse_for_init(&self, node: Node, source: &str) -> Result<Option<ForInit>, ParseError> {
         match node.kind() {
             "declaration" => {
-                if let Some(var_decl) = self.parse_variable_decl(node, source)? {
-                    Ok(Some(ForInit::Variable(var_decl)))
-                } else {
+                let decls = self.parse_variable_decls(node, source)?;
+                if decls.is_empty() {
                     Ok(None)
+                } else {
+                    Ok(Some(ForInit::Variables(decls)))
                 }
             }
             _ => {
@@ -523,6 +524,115 @@ impl TreeSitterParser {
                 Ok(Some(ForInit::Expression(expr)))
             }
         }
+    }
+
+    /// Parse a declaration node that may contain multiple declarators.
+    /// e.g. `int a = 0, b = 1, c = 2;` → Vec of 3 VariableDecls
+    fn parse_variable_decls(
+        &self,
+        node: Node,
+        source: &str,
+    ) -> Result<Vec<VariableDecl>, ParseError> {
+        let mut var_type = Type::default();
+        let mut is_const = false;
+        let mut modifiers = Vec::new();
+        let mut decls = Vec::new();
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "storage_class_specifier" => {
+                    let text = self.get_text(child, source);
+                    if text == "const" {
+                        is_const = true;
+                    } else if let Some(modifier) = self.text_to_modifier(text) {
+                        modifiers.push(modifier);
+                    }
+                }
+                "type_qualifier" => {
+                    if self.get_text(child, source) == "const" {
+                        is_const = true;
+                    }
+                }
+                "__DEVICE__" | "__GLOBAL__" | "__CONSTANT__" | "__PRIVATE__" | "__TEXTURE__"
+                | "__TEXTURE2D__" | "__TEXTURE3D__" | "__CONSTANTREF__" | "__RESOLVE__" => {
+                    if let Some(modifier) = self.text_to_modifier(child.kind()) {
+                        modifiers.push(modifier);
+                    }
+                }
+                "primitive_type" | "type_identifier" | "sized_type_specifier" => {
+                    var_type = self.parse_type_from_node(child, source)?;
+                }
+                "init_declarator" => {
+                    let mut name = String::new();
+                    let mut initializer = None;
+                    let mut decl_type = var_type.clone();
+                    let mut seen_equals = false;
+                    let mut inner_cursor = child.walk();
+                    for inner_child in child.children(&mut inner_cursor) {
+                        match inner_child.kind() {
+                            "=" => { seen_equals = true; }
+                            "identifier" if !seen_equals => {
+                                name = self.get_text(inner_child, source).to_string();
+                            }
+                            "array_declarator" if !seen_equals => {
+                                let mut arr_cursor = inner_child.walk();
+                                for arr_child in inner_child.children(&mut arr_cursor) {
+                                    match arr_child.kind() {
+                                        "identifier" => {
+                                            name = self.get_text(arr_child, source).to_string();
+                                        }
+                                        "number_literal" => {
+                                            if let Ok(size) = self.get_text(arr_child, source).parse::<usize>() {
+                                                decl_type.array_dims.push(ArrayDim::Fixed(size));
+                                            }
+                                        }
+                                        "[" | "]" => {}
+                                        _ => {}
+                                    }
+                                }
+                                if decl_type.array_dims.is_empty() {
+                                    decl_type.array_dims.push(ArrayDim::Unspecified);
+                                }
+                            }
+                            _ if seen_equals => {
+                                initializer = Some(self.parse_expression(inner_child, source)?);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !name.is_empty() {
+                        decl_type.is_const = is_const;
+                        decls.push(VariableDecl {
+                            name,
+                            var_type: decl_type,
+                            initializer,
+                            is_const,
+                            modifiers: modifiers.clone(),
+                            loc: self.get_location(child),
+                        });
+                    }
+                }
+                "identifier" => {
+                    // Simple declarator without initializer (e.g. `int x;`)
+                    let name = self.get_text(child, source).to_string();
+                    if !name.is_empty() {
+                        let mut decl_type = var_type.clone();
+                        decl_type.is_const = is_const;
+                        decls.push(VariableDecl {
+                            name,
+                            var_type: decl_type,
+                            initializer: None,
+                            is_const,
+                            modifiers: modifiers.clone(),
+                            loc: self.get_location(child),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(decls)
     }
 
     /// Parse while statement

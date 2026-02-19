@@ -571,8 +571,10 @@ impl NagaModuleGenerator {
                 // Generate initializer
                 if let Some(init) = &for_stmt.init {
                     match init {
-                        ForInit::Variable(var_decl) => {
-                            self.generate_local_variable(var_decl, ctx, func, block)?;
+                        ForInit::Variables(var_decls) => {
+                            for var_decl in var_decls {
+                                self.generate_local_variable(var_decl, ctx, func, block)?;
+                            }
                         }
                         ForInit::Expression(expr) => {
                             let _handle = self.emit_expression(expr, ctx, block)?;
