@@ -81,6 +81,11 @@
         "title": "Copy to DaVinci Resolve",
         "category": "DCTL Workbench",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "dctlWorkbench.toggleResolveLog",
+        "title": "Toggle DaVinci Resolve Log Monitor",
+        "category": "DCTL Workbench"
       }
     ],
     "configuration": [
@@ -159,6 +164,16 @@
             "type": "string",
             "default": "",
             "markdownDescription": "Path to DaVinci Resolve DCTL directory. Leave empty to use the OS default:\n- **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DCTL/`\n- **Windows**: `C:\\\\ProgramData\\\\Blackmagic Design\\\\DaVinci Resolve\\\\Support\\\\LUT\\\\DCTL\\\\`\n- **Linux**: `/opt/resolve/LUT/DCTL/`"
+          }
+        }
+      },
+      {
+        "title": "DaVinci Resolve",
+        "properties": {
+          "dctlWorkbench.resolve.logDirectory": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Path to DaVinci Resolve logs directory. Leave empty to use the OS default:\n- **macOS**: `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/logs/`\n- **Windows**: `%APPDATA%\\\\Blackmagic Design\\\\DaVinci Resolve\\\\Support\\\\logs\\\\`\n- **Linux**: `~/.local/share/DaVinciResolve/logs/`"
           }
         }
       }
