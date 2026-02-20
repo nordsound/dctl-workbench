@@ -2,7 +2,7 @@
   "name": "dctl-workbench",
   "displayName": "DCTL Workbench",
   "description": "DCTL development environment with color pipeline for VSCode",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "nordsound",
   "license": "MIT",
   "repository": {
