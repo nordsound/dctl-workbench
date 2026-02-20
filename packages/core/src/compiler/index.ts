@@ -165,14 +165,24 @@ export class DctlCompiler {
 
     /**
      * Compile DCTL source code to WGSL
+     * @param source DCTL source code
+     * @param options Optional compilation options
+     * @param options.mainFilePath Path to the main DCTL file (enables #include resolution)
+     * @param options.includeDirs Additional directories to search for #include files
      */
-    compile(source: string): CompileResult | CompileError {
+    compile(source: string, options?: PreprocessOptions): CompileResult | CompileError {
         if (!this.module) {
             throw new Error('DCTL Compiler module not initialized');
         }
 
+        // Resolve #include directives if file path is provided
+        let resolvedSource = source;
+        if (options?.mainFilePath || options?.includeDirs) {
+            resolvedSource = this.resolveIncludesSync(source, options);
+        }
+
         // Use TypeScript parser + Rust backend
-        return this.compileWithTsParser(source);
+        return this.compileWithTsParser(resolvedSource);
     }
 
     /**

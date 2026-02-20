@@ -349,7 +349,8 @@ async function buildDctlWgslFunctionsWithRust(
 
     // Compile DCTL to WGSL using Rust compiler
     try {
-        const result = rustCompiler.compile(dctlSource);
+        const compileOptions = options?.dctlFilePath ? { mainFilePath: options.dctlFilePath } : undefined;
+        const result = rustCompiler.compile(dctlSource, compileOptions);
 
         if (isCompileError(result)) {
             const errMsg = `[DCTL Compute] Rust compilation failed: ${result.message}`;
