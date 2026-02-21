@@ -13,6 +13,7 @@ import {
     DctlCompletionProvider,
     COMPLETION_TRIGGER_CHARACTERS
 } from './dctl/language';
+import { ResolveLogWatcher } from './resolve/resolveLogWatcher';
 // Plugin registries
 const inputPlugins = new Map<string, InputPlugin>();
 const demosaicPlugins = new Map<string, DemosaicPlugin>();
@@ -130,6 +131,16 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
                 },
                 supportsMultipleEditorsPerDocument: false,
             }
+        )
+    );
+
+    // Register Resolve Log Watcher
+    const resolveLogWatcher = new ResolveLogWatcher();
+    context.subscriptions.push(resolveLogWatcher);
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'dctlWorkbench.toggleResolveLog',
+            () => resolveLogWatcher.isWatching ? resolveLogWatcher.stop() : resolveLogWatcher.start()
         )
     );
 
