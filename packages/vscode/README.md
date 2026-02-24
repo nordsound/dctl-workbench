@@ -36,6 +36,7 @@ Built-in custom editor for OpenEXR files with DCTL integration:
 
 - **Copy to Resolve** — One-click copy of DCTL files to DaVinci Resolve's LUT/DCTL directory
 - **Cross-platform** — Auto-detects Resolve's DCTL directory on macOS, Windows, and Linux
+- **Resolve Log Monitor** — Monitors DaVinci Resolve's `ResolveDebug.txt` for DCTL build errors and displays them in a VS Code Output Channel in real time. Automatically detects when Resolve starts/stops.
 
 ## Snippets
 
@@ -72,14 +73,21 @@ Type `dctl` in a `.dctl` file to see all available snippets.
 | `nagaValidation` | `true` | Enable Naga (WGSL) validation in addition to syntax checking |
 | `resolveDctlDirectory` | *(empty)* | Path to DaVinci Resolve DCTL directory |
 
+**DaVinci Resolve** (`dctlWorkbench.resolve.*`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `logDirectory` | *(empty)* | Path to DaVinci Resolve logs directory. Leave empty to use the OS default. |
+
 ## Commands
 
 Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for:
 
 - **DCTL Workbench: Preview in EXR Viewer** — Load the current DCTL into an EXR viewer
 - **DCTL Workbench: Copy to DaVinci Resolve** — Copy the current DCTL file to Resolve's DCTL directory
+- **DCTL Workbench: Toggle DaVinci Resolve Log Monitor** — Start/stop monitoring Resolve's debug log for DCTL build errors
 
-Both commands are also available as toolbar buttons when editing `.dctl` files.
+The first two commands are also available as toolbar buttons when editing `.dctl` files.
 
 ## Known Limitations
 
