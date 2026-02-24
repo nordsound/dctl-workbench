@@ -1,0 +1,26 @@
+// Bug: typedef enum breaks function resolution in Rust codegen
+// All functions become "Unknown function" when typedef enum is used
+// Pattern from: Greyson-Sawyer CST_full.dctl, baldavenger ACES files
+
+typedef enum {
+    Mode_A,
+    Mode_B
+} ProcessMode;
+
+__DEVICE__ float process(float x, ProcessMode mode) {
+    if (mode == Mode_A) return x * 2.0f;
+    return x;
+}
+
+__DEVICE__ float3 apply_effect(float3 in) {
+    in.x = process(in.x, Mode_A);
+    in.y = process(in.y, Mode_B);
+    in.z = process(in.z, Mode_A);
+    return in;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float3 out = make_float3(p_R, p_G, p_B);
+    out = apply_effect(out);
+    return out;
+}

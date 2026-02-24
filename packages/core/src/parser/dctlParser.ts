@@ -231,7 +231,12 @@ export class DctlParser {
 
                 // Check for typedef
                 if (this.check(TokenType.TYPEDEF)) {
-                    declarations.push(this.parseTypedef());
+                    const result = this.parseTypedef();
+                    if (Array.isArray(result)) {
+                        declarations.push(...result);
+                    } else {
+                        declarations.push(result);
+                    }
                     continue;
                 }
 
@@ -679,9 +684,95 @@ export class DctlParser {
         };
     }
 
-    private parseTypedef(): TypedefNode | StructDefinitionNode {
+    private parseTypedef(): TypedefNode | StructDefinitionNode | DeclarationNode[] {
         const startToken = this.current();
         this.consume(TokenType.TYPEDEF, 'Expected typedef');
+
+        // Check for typedef enum { A, B, C } Name;
+        // 'enum' is tokenized as IDENTIFIER since there's no ENUM token type
+        if (this.check(TokenType.IDENTIFIER) && this.current().value === 'enum') {
+            this.advance(); // consume 'enum'
+
+            // Optional enum tag name (e.g., typedef enum MyEnum { ... } MyEnum;)
+            if (this.check(TokenType.IDENTIFIER) && this.peek(1).type === TokenType.OPEN_BRACE) {
+                this.advance(); // skip optional tag name
+            }
+
+            this.consume(TokenType.OPEN_BRACE, 'Expected {');
+
+            // Parse enum members: { A, B = 5, C }
+            const enumMembers: { name: string; value: number }[] = [];
+            let nextValue = 0;
+            while (!this.check(TokenType.CLOSE_BRACE) && !this.atEnd()) {
+                const memberName = this.consume(TokenType.IDENTIFIER, 'Expected enum member name').value as string;
+
+                if (this.match(TokenType.ASSIGN)) {
+                    // Explicit value: A = 5
+                    const negative = this.match(TokenType.MINUS) !== null;
+                    const valueToken = this.consume(TokenType.INT_LITERAL, 'Expected integer value');
+                    nextValue = Number(valueToken.value);
+                    if (negative) nextValue = -nextValue;
+                }
+
+                enumMembers.push({ name: memberName, value: nextValue });
+                nextValue++;
+
+                if (!this.match(TokenType.COMMA)) {
+                    break; // No trailing comma means end of list
+                }
+            }
+
+            this.consume(TokenType.CLOSE_BRACE, 'Expected }');
+
+            // Parse the typedef alias name
+            const aliasName = this.consumeTypedefName('Expected typedef name');
+            this.consume(TokenType.SEMICOLON, 'Expected ;');
+
+            const typeName = aliasName.value as string;
+            if (typeName) {
+                this.knownUserTypes.add(typeName);
+            }
+
+            const loc = this.loc(startToken, this.current());
+            const intType: TypeNode = {
+                kind: 'Type',
+                name: 'int',
+                isPointer: false,
+                isArray: false,
+                isConst: false,
+                loc,
+            };
+
+            // Generate: typedef int Name; + const int A = 0; const int B = 1; ...
+            const declarations: DeclarationNode[] = [];
+
+            // 1. Typedef alias: Name → int
+            declarations.push({
+                kind: 'Typedef',
+                name: typeName,
+                type: { ...intType },
+                loc,
+            });
+
+            // 2. Enum member constants
+            for (const member of enumMembers) {
+                declarations.push({
+                    kind: 'VariableDeclaration',
+                    name: member.name,
+                    type: { ...intType, isConst: true },
+                    initializer: {
+                        kind: 'Literal',
+                        value: member.value,
+                        literalType: 'int',
+                        loc,
+                    },
+                    isConst: true,
+                    loc,
+                });
+            }
+
+            return declarations;
+        }
 
         // Check for typedef struct { ... } Name;
         if (this.check(TokenType.STRUCT)) {
@@ -829,7 +920,16 @@ export class DctlParser {
         }
         // Support typedef inside function bodies (e.g., typedef struct { ... } name;)
         if (this.check(TokenType.TYPEDEF)) {
-            return this.parseTypedef();
+            const result = this.parseTypedef();
+            if (Array.isArray(result)) {
+                // typedef enum generates multiple declarations — wrap in a block
+                return {
+                    kind: 'Block',
+                    statements: result as StatementNode[],
+                    loc: result[0].loc,
+                };
+            }
+            return result;
         }
 
         // Check for variable declaration

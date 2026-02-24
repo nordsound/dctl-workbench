@@ -1,0 +1,30 @@
+// Limitation: Cast to struct type is unsupported
+// "Unsupported cast target type: Struct"
+// Pattern from: thatcherfreeman DaVinci LGGO / Rebind LGGO
+
+typedef struct {
+    float lift;
+    float gamma;
+    float gain;
+    float offset;
+} lggo_params_t;
+
+typedef lggo_params_t lggo_params_reals_t;
+
+__DEVICE__ lggo_params_t make_lggo_params(float lift, float gamma, float gain, float offset) {
+    lggo_params_t p;
+    p.lift = lift;
+    p.gamma = gamma;
+    p.gain = gain;
+    p.offset = offset;
+    return p;
+}
+
+__DEVICE__ lggo_params_reals_t make_lggo_params_reals(float lift, float gamma, float gain, float offset) {
+    return (lggo_params_reals_t)make_lggo_params(lift, gamma, gain, offset);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    lggo_params_reals_t params = make_lggo_params_reals(0.0f, 1.0f, 1.0f, 0.0f);
+    return make_float3(p_R * params.gain, p_G * params.gain, p_B * params.gain);
+}

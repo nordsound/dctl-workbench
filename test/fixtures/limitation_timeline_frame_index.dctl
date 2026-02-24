@@ -1,0 +1,9 @@
+// Limitation: TIMELINE_FRAME_INDEX built-in variable is not supported
+// "Undefined variable: TIMELINE_FRAME_INDEX"
+// Pattern from: thatcherfreeman Timecode Display / Timing Shift Streaks
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    int curr_frame = TIMELINE_FRAME_INDEX;
+    float brightness = (float)curr_frame / 100.0f;
+    return make_float3(p_R * brightness, p_G * brightness, p_B * brightness);
+}
