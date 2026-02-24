@@ -32,6 +32,11 @@ DCTL Workbench provides a complete development environment for writing, testing,
   - Automatic update on file changes
   - Interactive UI parameter controls (sliders, checkboxes, combos)
 
+- **DaVinci Resolve Integration**
+  - One-click copy of DCTL files to Resolve's DCTL directory
+  - Log monitor: watches Resolve's `ResolveDebug.txt` for DCTL build errors in real time
+  - Auto-detects when Resolve starts/stops, cross-platform (macOS, Windows, Linux)
+
 - **ACES Color Pipeline**
   - Full ACES 2.0 workflow
   - ACES 2.0 Reference Gamut Compression (RGC) support
@@ -177,6 +182,12 @@ npm run build:vscode    # VS Code extension
 | `diagnosticsDebounceMs` | `500` | Debounce time for diagnostics update (ms) |
 | `nagaValidation` | `true` | Enable Naga (WGSL) validation in addition to syntax checking |
 | `resolveDctlDirectory` | *(empty)* | Path to DaVinci Resolve DCTL directory |
+
+**DaVinci Resolve** (`dctlWorkbench.resolve.*`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `logDirectory` | *(empty)* | Path to Resolve logs directory (auto-detected if empty) |
 
 ### CLI Tool
 
