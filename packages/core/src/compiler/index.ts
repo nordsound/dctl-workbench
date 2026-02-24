@@ -244,6 +244,7 @@ export class DctlCompiler {
 
             // Check if the result is an error from the Rust backend
             if (result.error) {
+                result.message = formatWgslLimitationMessage(result.message);
                 return result as CompileError;
             }
 
@@ -495,4 +496,94 @@ export function convertParameter(param: CompilerParameter): {
                 options: param.param_type.options,
             };
     }
+}
+
+// =============================================================================
+// WGSL Limitation Error Message Formatting
+// =============================================================================
+
+const WGSL_SUFFIX = 'The code may work in DaVinci Resolve (CUDA/Metal).';
+
+interface ErrorRule {
+    pattern: RegExp;
+    format: (match: RegExpMatchArray) => string;
+}
+
+const WGSL_ERROR_RULES: ErrorRule[] = [
+    // Cast to struct type
+    {
+        pattern: /Unsupported.*cast target type:.*Struct\("([^"]+)"\)/,
+        format: (m) => `Cast to struct type '${m[1]}' is not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Cast to pointer type
+    {
+        pattern: /Unsupported.*cast target type:.*Pointer/,
+        format: () => `Cast to pointer type is not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Cast to other unsupported types (array, etc.)
+    {
+        pattern: /Unsupported.*cast target type:\s*(.+)/,
+        format: (m) => `Cast to type '${m[1].trim()}' is not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Double pointer / InvalidSubAccess (Naga validation)
+    {
+        pattern: /WGSL generation failed:.*InvalidSubAccess/,
+        format: () => `Double pointer (pointer-to-pointer) access is not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Pointer local variable without initializer
+    {
+        pattern: /Pointer local variable.*not supported/i,
+        format: () => `Pointer local variables without initializer are not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Function pointer calls
+    {
+        pattern: /Complex callee expressions not supported/,
+        format: () => `Function pointer calls are not supported in WGSL. Use direct function calls instead. ${WGSL_SUFFIX}`,
+    },
+    // Arrow access to multi-component swizzle
+    {
+        pattern: /Arrow access to multi-component swizzle:\s*(.+)/,
+        format: (m) => `Arrow access to multi-component swizzle (${m[1].trim()}) is not supported in WGSL. ${WGSL_SUFFIX}`,
+    },
+    // Arrow access on non-pointer type
+    {
+        pattern: /Arrow access on non-pointer type:\s*(.+)/,
+        format: (m) => `Arrow operator on non-pointer type (${m[1].trim()}) is not supported. Use dot (.) access instead.`,
+    },
+    // Swizzle assignment
+    {
+        pattern: /Cannot assign to swizzle/,
+        format: () => `Direct assignment to multi-component swizzle is not supported in WGSL. Assign to individual components instead. ${WGSL_SUFFIX}`,
+    },
+    // Generic "Unsupported feature:" — append WGSL suffix
+    {
+        pattern: /^Unsupported feature:\s*(.+)/,
+        format: (m) => `${m[1].trim()}. ${WGSL_SUFFIX}`,
+    },
+    // Generic "WGSL generation failed:" — strip Naga internals
+    {
+        pattern: /^WGSL generation failed:\s*(.+)/,
+        format: (m) => {
+            // Try to extract a readable error from Naga's debug output
+            const inner = m[1];
+            const fnMatch = inner.match(/name:\s*"([^"]+)"/);
+            const fnName = fnMatch ? ` in function '${fnMatch[1]}'` : '';
+            return `WGSL validation error${fnName}. ${WGSL_SUFFIX}`;
+        },
+    },
+];
+
+/**
+ * Format Rust compiler error messages to be more user-friendly.
+ * Replaces technical Naga/WGSL error details with clear descriptions
+ * of WGSL limitations and suggestions.
+ */
+export function formatWgslLimitationMessage(message: string): string {
+    for (const rule of WGSL_ERROR_RULES) {
+        const match = message.match(rule.pattern);
+        if (match) {
+            return rule.format(match);
+        }
+    }
+    return message;
 }

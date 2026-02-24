@@ -1,0 +1,11 @@
+// Limitation: Cast to pointer type is unsupported
+// "Unsupported cast target type: Pointer(UInt)"
+// Pattern from: thatcherfreeman Random Linear Contrast
+
+typedef unsigned int rand_state;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float user_seed = 42.0f;
+    __PRIVATE__ rand_state* seed = (__PRIVATE__ rand_state*)&user_seed;
+    return make_float3(p_R, p_G, p_B);
+}

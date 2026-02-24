@@ -21,6 +21,11 @@ impl NagaModuleGenerator {
         let mut ctx = FunctionContext::new();
         let mut function = Function::default();
 
+        // Clear per-function state: multi-dimensional array dimensions are local to each function
+        // Without this, variable names from earlier functions (e.g., "r" from mult_f33_f33) would
+        // collide with same-named variables in later functions (e.g., "r" in mult_f3_f44)
+        self.multidim_array_dims.clear();
+
         // Collect parameter types for overload resolution
         let param_types: Vec<DctlType> = func_decl
             .params

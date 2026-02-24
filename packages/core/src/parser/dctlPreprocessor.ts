@@ -314,6 +314,15 @@ function processDefines(source: string): string {
     const objectMacros = new Map<string, string>();
     const functionMacros = new Map<string, FunctionMacro>();
     const definedFlags = new Set<string>(); // Track #define without value (flags)
+
+    // Pre-seed DaVinci Resolve built-in constants
+    objectMacros.set('__RESOLVE_VER_MAJOR__', '19');
+    objectMacros.set('__RESOLVE_VER_MINOR__', '0');
+    objectMacros.set('DEVICE_IS_CUDA', '0');
+    objectMacros.set('DEVICE_IS_OPENCL', '0');
+    objectMacros.set('DEVICE_IS_METAL', '0');
+    objectMacros.set('TIMELINE_FRAME_INDEX', '0');
+    objectMacros.set('TRANSITION_PROGRESS', '0.0f');
     const lines = source.split('\n');
     const resultLines: string[] = [];
 

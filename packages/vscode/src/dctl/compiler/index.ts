@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import { collectIncludes, collectIncludesSync, IncludeMap, PreprocessOptions } from './preprocessor';
 import { DctlParser } from '../parser';
 import { preprocessDctl } from '../parser';
-import { convertAstToRustFormat } from '@dctl-workbench/core';
+import { convertAstToRustFormat, formatWgslLimitationMessage } from '@dctl-workbench/core';
 
 // Re-export preprocessor types
 export { IncludeMap, PreprocessOptions };
@@ -244,11 +244,17 @@ export class DctlCompiler {
             const resultJson = this.module.compile_from_ast(conversionResult.json);
             const result = JSON.parse(resultJson);
 
+            // Check if the result is an error from the Rust backend
+            if (result.error) {
+                result.message = formatWgslLimitationMessage(result.message);
+                return result as CompileError;
+            }
+
             // Step 6: Adjust diagnostic line numbers to remove DCTL_TYPE_DEFINITIONS header offset
             // The TS parser produces AST nodes with line numbers that include the prepended header.
             // The Rust backend returns diagnostics using those inflated line numbers.
             // We subtract (headerLineCount - 1) so diagnostics map back to the original source.
-            if (!result.error && result.diagnostics) {
+            if (result.diagnostics) {
                 for (const diag of result.diagnostics) {
                     diag.line = Math.max(1, diag.line - (headerLineCount - 1));
                 }

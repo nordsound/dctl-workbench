@@ -1180,3 +1180,184 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
         } catch { /* ignore */ }
     });
 });
+
+suite('DCTL WGSL Limitation Error Message Tests', () => {
+
+    test('struct cast should produce user-friendly WGSL limitation message', async function () {
+        this.timeout(30000);
+
+        // Cast to struct typedef alias — should trigger WGSL limitation error
+        // with user-friendly message instead of raw "Unsupported cast target type: Struct(...)"
+        const source =
+`typedef struct {
+    float lift;
+    float gamma;
+    float gain;
+    float offset;
+} lggo_params_t;
+
+typedef lggo_params_t lggo_params_reals_t;
+
+__DEVICE__ lggo_params_t make_lggo_params(float lift, float gamma, float gain, float offset) {
+    lggo_params_t p;
+    p.lift = lift;
+    p.gamma = gamma;
+    p.gain = gain;
+    p.offset = offset;
+    return p;
+}
+
+__DEVICE__ lggo_params_reals_t make_lggo_params_reals(float lift, float gamma, float gain, float offset) {
+    return (lggo_params_reals_t)make_lggo_params(lift, gamma, gain, offset);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    lggo_params_reals_t params = make_lggo_params_reals(0.0f, 1.0f, 1.0f, 0.0f);
+    return make_float3(p_R * params.gain, p_G * params.gain, p_B * params.gain);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should have at least one DCTL010 compiler error
+        const compilerErrors = diagnostics.filter(d => d.code === 'DCTL010');
+        assert.ok(
+            compilerErrors.length > 0,
+            `Should report DCTL010 for struct cast limitation. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        // Error message should be user-friendly
+        const error = compilerErrors[0];
+        assert.ok(
+            error.message.includes('not supported in WGSL'),
+            `Error message should mention WGSL limitation. Got: ${error.message}`
+        );
+        assert.ok(
+            error.message.includes('DaVinci Resolve'),
+            `Error message should mention DaVinci Resolve as alternative. Got: ${error.message}`
+        );
+
+        // Should NOT contain raw Rust/Naga internals
+        assert.ok(
+            !error.message.includes('WithSpan'),
+            `Error message should NOT contain raw Naga internals 'WithSpan'. Got: ${error.message}`
+        );
+        assert.ok(
+            !error.message.includes('Struct('),
+            `Error message should NOT contain raw type notation 'Struct('. Got: ${error.message}`
+        );
+
+        // Should be Error severity
+        assert.strictEqual(
+            error.severity,
+            vscode.DiagnosticSeverity.Error,
+            'WGSL limitation should be Error severity'
+        );
+    });
+
+    test('pointer cast should produce user-friendly WGSL limitation message', async function () {
+        this.timeout(30000);
+
+        // Cast to pointer type — should trigger WGSL limitation error
+        // with user-friendly message instead of raw "Unsupported cast target type: Pointer(UInt)"
+        const source =
+`typedef unsigned int rand_state;
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float user_seed = 42.0f;
+    __PRIVATE__ rand_state* seed = (__PRIVATE__ rand_state*)&user_seed;
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should have at least one DCTL010 compiler error
+        const compilerErrors = diagnostics.filter(d => d.code === 'DCTL010');
+        assert.ok(
+            compilerErrors.length > 0,
+            `Should report DCTL010 for pointer cast limitation. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        // Error message should be user-friendly
+        const error = compilerErrors[0];
+        assert.ok(
+            error.message.includes('not supported in WGSL'),
+            `Error message should mention WGSL limitation. Got: ${error.message}`
+        );
+        assert.ok(
+            error.message.includes('DaVinci Resolve'),
+            `Error message should mention DaVinci Resolve as alternative. Got: ${error.message}`
+        );
+
+        // Should NOT contain raw Rust/Naga internals
+        assert.ok(
+            !error.message.includes('Pointer('),
+            `Error message should NOT contain raw type notation 'Pointer('. Got: ${error.message}`
+        );
+    });
+
+    test('double pointer should produce user-friendly WGSL limitation message', async function () {
+        this.timeout(30000);
+
+        // Double pointer (float**) — should trigger WGSL limitation error
+        // with user-friendly message instead of raw Naga "WithSpan { inner: ... InvalidSubAccess ... }"
+        const source =
+`__DEVICE__ void matrix_multiply(__PRIVATE__ float** C, __PRIVATE__ float** A, int rows, int cols, __PRIVATE__ float** B, int B_cols) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < B_cols; j++) {
+            C[i][j] = 0.0f;
+            for (int k = 0; k < cols; k++) {
+                C[i][j] = C[i][j] + A[i][k] * B[k][j];
+            }
+        }
+    }
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}`;
+
+        const diagnostics = await getDiagnosticsForSource(source);
+
+        console.log(`Got ${diagnostics.length} diagnostics:`);
+        for (const d of diagnostics) {
+            console.log(`  line ${d.range.start.line + 1}, col ${d.range.start.character + 1}: [${d.code}] ${d.message}`);
+        }
+
+        // Should have at least one DCTL010 compiler error
+        const compilerErrors = diagnostics.filter(d => d.code === 'DCTL010');
+        assert.ok(
+            compilerErrors.length > 0,
+            `Should report DCTL010 for double pointer limitation. ` +
+            `Got: ${diagnostics.map(d => `[${d.code}] ${d.message}`).join('; ')}`
+        );
+
+        // Error message should be user-friendly
+        const error = compilerErrors[0];
+        assert.ok(
+            error.message.includes('DaVinci Resolve') || error.message.includes('not supported'),
+            `Error message should mention limitation. Got: ${error.message}`
+        );
+
+        // Should NOT contain raw Naga internals
+        assert.ok(
+            !error.message.includes('WithSpan'),
+            `Error message should NOT contain raw Naga internals 'WithSpan'. Got: ${error.message}`
+        );
+        assert.ok(
+            !error.message.includes('inner:'),
+            `Error message should NOT contain raw Naga error structure 'inner:'. Got: ${error.message}`
+        );
+    });
+});

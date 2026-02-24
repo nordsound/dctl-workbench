@@ -1,0 +1,53 @@
+// Limitation: Naga WGSL validation fails when 2D array function (mult_f33_f33)
+// precedes 1D+2D array function (mult_f3_f44). The 2D array codegen corrupts
+// type information causing "Array as Float" error in subsequent functions.
+// Pattern from: baldavenger ACES_LIB.h mult_f33_f33 + mult_f3_f44
+
+typedef struct { float3 c0, c1, c2; } mat3;
+typedef struct { float4 c0, c1, c2, c3; } mat4;
+
+__DEVICE__ mat3 make_mat3(float3 A, float3 B, float3 C) {
+    mat3 D; D.c0 = A; D.c1 = B; D.c2 = C; return D;
+}
+
+// This function uses float r[3][3] (2D array) — works on its own
+__DEVICE__ mat3 mult_f33_f33(mat3 A, mat3 B) {
+    float r[3][3];
+    float a[3][3] = {{A.c0.x, A.c0.y, A.c0.z}, {A.c1.x, A.c1.y, A.c1.z}, {A.c2.x, A.c2.y, A.c2.z}};
+    float b[3][3] = {{B.c0.x, B.c0.y, B.c0.z}, {B.c1.x, B.c1.y, B.c1.z}, {B.c2.x, B.c2.y, B.c2.z}};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            r[i][j] = 0.0f;
+            for (int k = 0; k < 3; ++k) {
+                r[i][j] = r[i][j] + a[i][k] * b[k][j];
+            }
+        }
+    }
+    return make_mat3(make_float3(r[0][0], r[0][1], r[0][2]),
+                     make_float3(r[1][0], r[1][1], r[1][2]),
+                     make_float3(r[2][0], r[2][1], r[2][2]));
+}
+
+// This function uses float r[3] + float a[4][4] — fails when mult_f33_f33 is also present
+__DEVICE__ float3 mult_f3_f44(float3 X, mat4 A) {
+    float r[3];
+    float x[3] = {X.x, X.y, X.z};
+    float a[4][4] = {{A.c0.x, A.c0.y, A.c0.z, A.c0.w}, {A.c1.x, A.c1.y, A.c1.z, A.c1.w},
+                     {A.c2.x, A.c2.y, A.c2.z, A.c2.w}, {A.c3.x, A.c3.y, A.c3.z, A.c3.w}};
+    for (int i = 0; i < 3; ++i) {
+        r[i] = 0.0f;
+        for (int j = 0; j < 3; ++j) {
+            r[i] = r[i] + x[j] * a[j][i];
+        }
+        r[i] = r[i] + a[3][i];
+    }
+    float s = 1.0f / (x[0] * a[0][3] + x[1] * a[1][3] + x[2] * a[2][3] + a[3][3]);
+    for (int k = 0; k < 3; ++k) {
+        r[k] = r[k] * s;
+    }
+    return make_float3(r[0], r[1], r[2]);
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    return make_float3(p_R, p_G, p_B);
+}
