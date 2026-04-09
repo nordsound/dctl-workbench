@@ -492,8 +492,7 @@ The VS Code extension preprocessor simulates DaVinci Resolve 18.0 with predefine
 
 ## Roadmap
 
-- [ ] Multi-layer EXR support
-- [ ] GPU LUT baking
+- [ ] Plugin API support
 
 ## License
 
