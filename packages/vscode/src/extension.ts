@@ -5,6 +5,7 @@ import {
     InputPlugin,
     DemosaicPlugin,
     DctlWorkbenchApi,
+    PLUGIN_API_VERSION,
 } from './plugins/types';
 import { ExrEditorProvider } from './editor/ExrEditorProvider';
 import { DctlNativeDiagnosticsProvider } from './dctl';
@@ -18,20 +19,18 @@ import { ResolveLogWatcher } from './resolve/resolveLogWatcher';
 const inputPlugins = new Map<string, InputPlugin>();
 const demosaicPlugins = new Map<string, DemosaicPlugin>();
 
-// API version
-const API_VERSION = '0.1.0';
-
 /**
  * API exposed to plugin extensions
  */
 const api: DctlWorkbenchApi = {
-    registerInputPlugin(plugin: InputPlugin): void {
+    registerInputPlugin(plugin: InputPlugin): boolean {
         if (inputPlugins.has(plugin.id)) {
             console.warn(`Input plugin with id "${plugin.id}" is already registered`);
-            return;
+            return false;
         }
         inputPlugins.set(plugin.id, plugin);
         console.log(`Registered input plugin: ${plugin.name} (${plugin.id})`);
+        return true;
     },
 
     unregisterInputPlugin(id: string): boolean {
@@ -45,13 +44,14 @@ const api: DctlWorkbenchApi = {
         return false;
     },
 
-    registerDemosaicPlugin(plugin: DemosaicPlugin): void {
+    registerDemosaicPlugin(plugin: DemosaicPlugin): boolean {
         if (demosaicPlugins.has(plugin.id)) {
             console.warn(`Demosaic plugin with id "${plugin.id}" is already registered`);
-            return;
+            return false;
         }
         demosaicPlugins.set(plugin.id, plugin);
         console.log(`Registered demosaic plugin: ${plugin.name} (${plugin.id})`);
+        return true;
     },
 
     unregisterDemosaicPlugin(id: string): boolean {
@@ -63,7 +63,7 @@ const api: DctlWorkbenchApi = {
     },
 
     get apiVersion(): string {
-        return API_VERSION;
+        return PLUGIN_API_VERSION;
     },
 };
 
