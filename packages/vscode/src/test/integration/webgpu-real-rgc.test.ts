@@ -14,8 +14,12 @@ import * as fs from 'fs';
 import { resolveFixture, getTestOutputDir } from '@dctl-workbench/core/out/test-paths.js';
 
 // Test configuration
+// __dirname is packages/vscode/out/src/test/integration after compile,
+// so '../../..' is packages/vscode/out where the WASM artifacts live.
 const extensionPath = path.resolve(__dirname, '../../..');
-const ocioBasePath = path.join(extensionPath, 'wasm', 'ocio');
+// The OCIO loader searches several layouts; pointing it at out/wasm
+// makes it pick up out/wasm/ocio.js + out/wasm/ocio.wasm directly.
+const ocioBasePath = path.join(extensionPath, 'wasm');
 const TEST_DCTL_PATH = resolveFixture('test_gain.dctl') ?? '';
 const TEST_OUTPUT_DIR = getTestOutputDir();
 

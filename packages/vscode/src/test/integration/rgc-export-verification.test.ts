@@ -53,7 +53,7 @@ suite('RGC Export Verification Integration Tests', () => {
 
         // Wait for extension to activate
         // Extension ID format: {publisher}.{name}
-        const extension = vscode.extensions.getExtension('your-publisher-id.dctl-workbench');
+        const extension = vscode.extensions.getExtension('nordsound.dctl-workbench');
         if (extension) {
             if (!extension.isActive) {
                 console.log('Activating extension...');
@@ -82,7 +82,7 @@ suite('RGC Export Verification Integration Tests', () => {
     test('Extension should be activated', async function() {
         this.timeout(10000);
 
-        const extension = vscode.extensions.getExtension('your-publisher-id.dctl-workbench');
+        const extension = vscode.extensions.getExtension('nordsound.dctl-workbench');
         assert.ok(extension, 'Extension should be installed');
 
         if (extension && !extension.isActive) {
@@ -112,7 +112,7 @@ suite('RGC Export Verification Integration Tests', () => {
         }
 
         // Get extension path
-        const extension = vscode.extensions.getExtension('your-publisher-id.dctl-workbench');
+        const extension = vscode.extensions.getExtension('nordsound.dctl-workbench');
         if (!extension) {
             console.log('Extension not found');
             this.skip();
@@ -196,7 +196,7 @@ suite('RGC Export Verification Integration Tests', () => {
             return;
         }
 
-        const extension = vscode.extensions.getExtension('your-publisher-id.dctl-workbench');
+        const extension = vscode.extensions.getExtension('nordsound.dctl-workbench');
         if (!extension) {
             this.skip();
             return;
@@ -302,7 +302,7 @@ suite('RGC Export Verification Integration Tests', () => {
             console.log('EXR module loaded');
 
             // Initialize OpenEXR WASM
-            const extension = vscode.extensions.getExtension('your-publisher-id.dctl-workbench');
+            const extension = vscode.extensions.getExtension('nordsound.dctl-workbench');
             if (!extension) {
                 this.skip();
                 return;

@@ -206,7 +206,7 @@
     "test": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
     "test:unit": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
     "compile:test": "tsc -p tsconfig.test.json",
-    "pretest:integration": "npm run compile && npm run compile:test",
+    "pretest:integration": "rm -rf out/src/test && npm run compile && npm run compile:test",
     "test:integration": "bash scripts/run-integration-tests.sh",
     "test:integration:legacy": "node ./out/src/test/runTest.js"
   },

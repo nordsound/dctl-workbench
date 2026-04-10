@@ -10,7 +10,7 @@
     "build:test": "tsc -p tsconfig.test.json",
     "clean": "rm -rf out",
     "watch": "tsc -p ./ --watch",
-    "pretest": "npm run build && npm run build:test",
+    "pretest": "rm -rf out/test && npm run build && npm run build:test",
     "test": "c8 --include 'out/**/*.js' --exclude 'out/test/**/*.js' mocha 'out/test/**/*.test.js'",
     "test:unit": "mocha 'out/test/**/*.test.js'",
     "coverage": "c8 report --reporter=text --reporter=html"

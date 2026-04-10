@@ -170,9 +170,21 @@ suite('Extension Activation', () => {
         }
 
         const contributes = extension.packageJSON.contributes;
-        if (contributes.configuration) {
+        const configuration = contributes?.configuration;
+        if (Array.isArray(configuration)) {
+            // Modern VS Code supports an array of configuration sections.
+            // Each section must declare its own properties bag.
+            assert.ok(configuration.length > 0, 'Configuration array should not be empty');
+            for (const section of configuration) {
+                assert.ok(
+                    section.properties,
+                    `Configuration section "${section.title ?? 'untitled'}" should have properties`
+                );
+            }
+        } else if (configuration) {
+            // Legacy single-object form.
             assert.ok(
-                contributes.configuration.properties,
+                configuration.properties,
                 'Extension should have configuration properties'
             );
         }
