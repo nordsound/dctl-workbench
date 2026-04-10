@@ -22,9 +22,6 @@ function initLog(extensionPath: string): void {
     sharedInitLog(extensionPath);
 }
 
-// Re-export writeLog for backwards compatibility
-export { writeLog };
-
 // Performance timing helper
 class PerfTimer {
     private startTime: number;
@@ -256,80 +253,16 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        // Delegate panel setup, state init, and lifecycle management to core
-        this.core.attach(webviewPanel, document.uri.fsPath);
-
-        // Initialize log file for new session
         initLog(this.context.extensionPath);
         writeLog(`Opening EXR file: ${document.uri.fsPath}`);
 
-        // Handle messages from webview
-        webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.type) {
-                case 'ready':
-                    writeLog('Webview ready');
-                    await this.loadImage(document, webviewPanel);
-                    // Send initial list of open DCTL files
-                    this.core.sendOpenDctlFiles(webviewPanel);
-                    break;
-                case 'setDisplayTransform':
-                    writeLog(`Display transform: ${message.source} -> ${message.display} / ${message.view}`);
-                    await this.core.updateDisplayTransform(
-                        webviewPanel,
-                        message.source,
-                        message.display,
-                        message.view
-                    );
-                    break;
-                case 'selectDctlFile':
-                    await this.core.handleSelectDctlFile(webviewPanel);
-                    break;
-                case 'loadDctlFromPath':
-                    if (message.path) {
-                        await this.core.loadDctlFile(webviewPanel, message.path);
-                    }
-                    break;
-                case 'toggleDctl':
-                    await this.core.handleToggleDctl(webviewPanel, message.enabled);
-                    break;
-                case 'toggleRgc':
-                    await this.core.handleToggleRgc(webviewPanel, message.enabled, message.peakLuminance);
-                    break;
-                case 'updateRgcSettings':
-                    await this.core.handleUpdateRgcSettings(webviewPanel, message.peakLuminance);
-                    break;
-                case 'changeDctlColorSpace':
-                    await this.core.handleChangeDctlColorSpace(webviewPanel, message.colorSpace);
-                    break;
-                case 'updateDctlParam':
-                    await this.core.handleUpdateDctlParam(webviewPanel, message.name, message.value);
-                    break;
-                case 'log':
-                    writeLog(`[WEBVIEW] ${message.message}`);
-                    break;
-                case 'error':
-                    writeLog(`[ERROR] ${message.message}`);
-                    vscode.window.showErrorMessage(`EXR Viewer: ${message.message}`);
-                    break;
-                case 'exportBufferReady':
-                    this.core.handleExportBufferReady(message);
-                    break;
-                case 'exportExr':
-                    writeLog('Export EXR requested from webview');
-                    this.exportAsExr(webviewPanel).catch((error) => {
-                        const errMsg = error instanceof Error ? error.message : String(error);
-                        vscode.window.showErrorMessage(`Export failed: ${errMsg}`);
-                    });
-                    break;
-                case 'shaderBuildResult':
-                    // Webview reports whether DCTL compute pipeline was built successfully
-                    this.core.handleShaderBuildResult(webviewPanel, message.hasDctlSupport, message.error);
-                    break;
-                case 'rgcPixelVerification':
-                    // Webview reports RGC pixel verification result
-                    this.core.handleRgcPixelVerification(message.isBlack, message.pixels, message.hasFullRgc);
-                    break;
-            }
+        this.core.attach(webviewPanel, document.uri.fsPath, {
+            onReady: async (panel) => {
+                await this.loadImage(document, panel);
+            },
+            onExport: async (panel) => {
+                await this.exportAsExr(panel);
+            },
         });
     }
 
