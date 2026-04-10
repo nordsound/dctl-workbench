@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initOCIO, OCIOProcessor, setWasmDirectory } from '@dctl-workbench/core';
-import { buildWgslShader, buildIntegratedShader } from '../shader';
+import { buildWgslShader, buildIntegratedShader, buildDctlExportShader } from '../shader';
 import { preprocessDctlSource } from '../dctl/preprocessor';
 import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
 import type { DctlState, OcioState } from './viewer-types';
@@ -725,6 +725,84 @@ export class ImageViewerCore {
                     bindings: wgslResult.bindings,
                 } : null,
             },
+        });
+    }
+
+    // =========================================================================
+    // Export pipeline (S10)
+    // =========================================================================
+
+    /**
+     * Build a DCTL export shader, send it to the webview, and return the
+     * rendered pixel buffer. This is the format-agnostic part of export —
+     * the caller writes the pixels to whatever output format it needs.
+     *
+     * @throws if no DCTL is loaded or shader build fails
+     */
+    public async getExportedPixels(panel: vscode.WebviewPanel): Promise<{
+        pixels: Float32Array;
+        width: number;
+        height: number;
+    }> {
+        const state = this.dctlStates.get(panel);
+        if (!state || !state.filePath) {
+            throw new Error('No DCTL file loaded');
+        }
+
+        const dctlShaderInfo = this.dctlShaderInfos.get(panel);
+        if (!dctlShaderInfo) {
+            throw new Error('No DCTL shader info available');
+        }
+
+        const exportResult = await buildDctlExportShader(
+            this.context.extensionPath,
+            dctlShaderInfo,
+            {
+                paramValues: state.paramValues,
+                imageWidth: state.imageWidth,
+                imageHeight: state.imageHeight,
+                applyACES2GamutCompression: state.applyRgc,
+                peakLuminance: state.rgcPeakLuminance,
+            }
+        );
+
+        if (!exportResult.success) {
+            throw new Error(`Failed to build export shader: ${exportResult.error}`);
+        }
+
+        // Send shader to webview and request rendered buffer in one round-trip
+        const requestId = `export-${Date.now()}`;
+
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.pendingExports.delete(requestId);
+                reject(new Error('Export timeout'));
+            }, 30000);
+
+            this.pendingExports.set(requestId, {
+                resolve: (data) => {
+                    clearTimeout(timeout);
+                    resolve(data);
+                },
+                reject: (error) => {
+                    clearTimeout(timeout);
+                    reject(error);
+                },
+            });
+
+            panel.webview.postMessage({
+                type: 'buildExportShader',
+                wgslShaderInfo: {
+                    wgslCode: exportResult.wgslCode,
+                    textures: [],
+                    textures3D: [],
+                    bindings: exportResult.bindings,
+                    rgcTextures: exportResult.rgcTextures,
+                    rgcTextures3D: exportResult.rgcTextures3D,
+                },
+                requestBuffer: true,
+                requestId,
+            });
         });
     }
 

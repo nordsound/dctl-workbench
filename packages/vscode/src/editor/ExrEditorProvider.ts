@@ -11,7 +11,6 @@ import * as fs from 'fs';
 import { performance } from 'perf_hooks';
 import { EXRWriter, PixelType, initOpenEXR, setOpenEXRWasmDirectory } from '../exr';
 import { DctlRuntime } from '@dctl-workbench/core';
-import { buildDctlExportShader } from '../shader';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
 import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
@@ -109,9 +108,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
      * Export to a specific path (for testing)
      */
     public async exportToPath(panel: vscode.WebviewPanel, outputPath: string): Promise<boolean> {
-        const state = this.core.getDctlState(panel);
         const panelInfo = this.core.getPanelInfo(panel);
-
         if (!panelInfo) {
             throw new Error('No panel info found');
         }
@@ -119,85 +116,20 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         writeLog(`Export to path: ${outputPath}`);
 
         // If no DCTL is loaded, export source image directly
+        const state = this.core.getDctlState(panel);
         if (!state || !state.filePath) {
             writeLog('No DCTL loaded, exporting source image');
-            // Read and copy source file
             const sourceData = fs.readFileSync(panelInfo.documentPath);
             fs.writeFileSync(outputPath, sourceData);
             return true;
         }
 
-        // Export with DCTL applied (direct export without save dialog)
+        // Export with DCTL applied via core
         try {
-            const dctlShaderInfo = this.core.getDctlShaderInfo(panel);
-            if (!dctlShaderInfo) {
-                throw new Error('No DCTL shader info available');
-            }
-
-            const exportResult = await buildDctlExportShader(
-                this.context.extensionPath,
-                dctlShaderInfo,
-                {
-                    paramValues: state.paramValues,
-                    imageWidth: state.imageWidth,
-                    imageHeight: state.imageHeight,
-                    applyACES2GamutCompression: state.applyRgc,
-                    peakLuminance: state.rgcPeakLuminance,
-                }
-            );
-
-            if (!exportResult.success) {
-                throw new Error(`Failed to build export shader: ${exportResult.error}`);
-            }
-
-            // Request export buffer from webview
-            const requestId = `export-${Date.now()}`;
-            const pendingExports = this.core.getPendingExports();
-
-            return new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    pendingExports.delete(requestId);
-                    reject(new Error('Export timeout'));
-                }, 30000);
-
-                pendingExports.set(requestId, {
-                    resolve: async (data) => {
-                        clearTimeout(timeout);
-                        pendingExports.delete(requestId);
-
-                        try {
-                            // Write EXR file
-                            const { pixels, width, height } = data;
-                            await this.writeExrFile(outputPath, pixels, width, height);
-                            writeLog(`Export saved to: ${outputPath}`);
-                            resolve(true);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    },
-                    reject: (error) => {
-                        clearTimeout(timeout);
-                        pendingExports.delete(requestId);
-                        reject(error);
-                    },
-                });
-
-                // Send export shader and request buffer
-                panel.webview.postMessage({
-                    type: 'buildExportShader',
-                    wgslShaderInfo: {
-                        wgslCode: exportResult.wgslCode,
-                        textures: [],
-                        textures3D: [],
-                        bindings: exportResult.bindings,
-                        rgcTextures: exportResult.rgcTextures,
-                        rgcTextures3D: exportResult.rgcTextures3D,
-                    },
-                    requestBuffer: true,
-                    requestId,
-                });
-            });
-
+            const { pixels, width, height } = await this.core.getExportedPixels(panel);
+            await this.writeExrFile(outputPath, pixels, width, height);
+            writeLog(`Export saved to: ${outputPath}`);
+            return true;
         } catch (e) {
             writeLog(`Export failed: ${e}`);
             throw e;
@@ -233,101 +165,15 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
      * Export the current image with DCTL applied as EXR
      */
     public async exportAsExr(panel: vscode.WebviewPanel): Promise<void> {
-        const state = this.core.getDctlState(panel);
         const panelInfo = this.core.getPanelInfo(panel);
-
         if (!panelInfo) {
             throw new Error('No panel info found');
         }
 
-        if (!state || !state.filePath) {
-            throw new Error('No DCTL file loaded');
-        }
+        writeLog('Starting EXR export...');
 
-        const dctlShaderInfo = this.core.getDctlShaderInfo(panel);
-        if (!dctlShaderInfo) {
-            throw new Error('No DCTL shader info available');
-        }
-
-        writeLog(`Starting EXR export... RGC=${state.applyRgc ? 'enabled' : 'disabled'}, peakLuminance=${state.rgcPeakLuminance ?? 100}`);
-
-        // Build export shader (DCTL only, no OCIO display transform)
-        // Pass RGC settings from viewer state
-        const exportResult = await buildDctlExportShader(
-            this.context.extensionPath,
-            dctlShaderInfo,
-            {
-                paramValues: state.paramValues,
-                imageWidth: state.imageWidth,
-                imageHeight: state.imageHeight,
-                applyACES2GamutCompression: state.applyRgc,
-                peakLuminance: state.rgcPeakLuminance,
-            }
-        );
-
-        if (!exportResult.success) {
-            throw new Error(`Failed to build export shader: ${exportResult.error}`);
-        }
-
-        writeLog('Export shader built successfully');
-
-        // Send export shader to webview with RGC textures if available
-        // Note: WebGPU renderer expects rgcTextures/rgcTextures3D fields for RGC LUT textures
-        panel.webview.postMessage({
-            type: 'buildExportShader',
-            wgslShaderInfo: {
-                wgslCode: exportResult.wgslCode,
-                textures: [],
-                textures3D: [],
-                bindings: exportResult.bindings,
-                rgcTextures: exportResult.rgcTextures,
-                rgcTextures3D: exportResult.rgcTextures3D,
-            },
-        });
-
-        // Wait for shader to be built
-        await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Export shader build timeout'));
-            }, 10000);
-
-            const handler = (message: { type: string; success?: boolean; error?: string }) => {
-                if (message.type === 'exportShaderBuilt') {
-                    clearTimeout(timeout);
-                    if (message.success) {
-                        resolve();
-                    } else {
-                        reject(new Error(message.error || 'Unknown error'));
-                    }
-                }
-            };
-
-            // Store handler for later cleanup (not ideal but works for now)
-            const messageHandler = panel.webview.onDidReceiveMessage(handler);
-            this.context.subscriptions.push(messageHandler);
-        });
-
-        writeLog('Export shader built in webview, requesting buffer...');
-
-        // Request pixel data
-        const requestId = `export-${Date.now()}`;
-        const pendingExports = this.core.getPendingExports();
-        const pixelData = await new Promise<{ pixels: Float32Array; width: number; height: number }>((resolve, reject) => {
-            pendingExports.set(requestId, { resolve, reject });
-
-            setTimeout(() => {
-                if (pendingExports.has(requestId)) {
-                    pendingExports.delete(requestId);
-                    reject(new Error('Export timeout'));
-                }
-            }, 30000);
-
-            panel.webview.postMessage({
-                type: 'exportToBuffer',
-                requestId,
-            });
-        });
-
+        // Get rendered pixels from core (builds shader, sends to webview, gets buffer)
+        const pixelData = await this.core.getExportedPixels(panel);
         writeLog(`Received pixel data: ${pixelData.width}x${pixelData.height}`);
 
         // Show save dialog
@@ -351,10 +197,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         writeLog(`Save path selected: ${saveUri.fsPath}`);
 
         // Write EXR file
-        // Try multiple possible paths for WASM files
         const possibleWasmDirs = [
-            path.join(this.context.extensionPath, 'wasm'),           // Development
-            path.join(this.context.extensionPath, 'out', 'wasm'),    // Compiled output
+            path.join(this.context.extensionPath, 'wasm'),
+            path.join(this.context.extensionPath, 'out', 'wasm'),
         ];
         let wasmDir = possibleWasmDirs[0];
         for (const dir of possibleWasmDirs) {
@@ -364,43 +209,12 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 break;
             }
         }
-        writeLog(`WASM directory: ${wasmDir}`);
+
         setOpenEXRWasmDirectory(wasmDir);
-        writeLog('Initializing OpenEXR WASM module (fresh instance for writing)...');
-
-        let exrModule;
-        try {
-            // Force a fresh module load for writing to avoid HEAP view issues
-            exrModule = await initOpenEXR(true);
-            writeLog('OpenEXR WASM module initialized successfully (fresh instance)');
-        } catch (initError) {
-            const errMsg = initError instanceof Error ? initError.message : String(initError);
-            const errStack = initError instanceof Error ? initError.stack : '';
-            writeLog(`OpenEXR init error: ${errMsg}\nStack: ${errStack}`);
-            throw new Error(`Failed to initialize OpenEXR: ${errMsg}`);
-        }
-
-        // Check WASM module (HEAPF32/HEAPU8 may not be exposed, writer.ts has fallback)
+        const exrModule = await initOpenEXR(true);
         if (!exrModule) {
             throw new Error('Failed to initialize OpenEXR WASM module');
         }
-        writeLog(`WASM module: HEAPF32=${typeof exrModule.HEAPF32}, HEAPU8=${typeof exrModule.HEAPU8}, setValue=${typeof exrModule.setValue}`);
-        if (!exrModule.HEAPF32 || !exrModule.HEAPU8) {
-            writeLog('HEAP views not available, will use setValue/getValue fallback (slower)');
-        }
-
-        // Validate pixel data
-        if (!pixelData.pixels) {
-            throw new Error('Pixel data is null or undefined');
-        }
-        if (!(pixelData.pixels instanceof Float32Array)) {
-            throw new Error(`Pixel data is not Float32Array: ${Object.prototype.toString.call(pixelData.pixels)}`);
-        }
-        const expectedSize = pixelData.width * pixelData.height * 3;
-        if (pixelData.pixels.length !== expectedSize) {
-            throw new Error(`Pixel data size mismatch: expected ${expectedSize}, got ${pixelData.pixels.length}`);
-        }
-        writeLog(`Pixel data validated: ${pixelData.pixels.length} floats, ${pixelData.width}x${pixelData.height}`);
 
         // ACES2065-1 chromaticities (AP0)
         const ACES_CHROMATICITIES = {
@@ -410,12 +224,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             whiteX: 0.32168, whiteY: 0.33767,
         };
 
-        writeLog('Creating EXRWriter...');
         const writer = new EXRWriter(exrModule);
-        writeLog('Calling writer.write()...');
-        let exrData: Uint8Array;
         try {
-            exrData = writer.write(pixelData.pixels, pixelData.width, pixelData.height, 3, {
+            const exrData = writer.write(pixelData.pixels, pixelData.width, pixelData.height, 3, {
                 compression: parseCompressionSetting(
                     vscode.workspace.getConfiguration('dctlWorkbench').get('exr_viewer.defaultExportCompression', 'PIZ')
                 ),
@@ -423,21 +234,13 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 chromaticities: ACES_CHROMATICITIES,
                 adoptedNeutral: true,
             });
-            writeLog(`writer.write() succeeded, exrData.length=${exrData.length}`);
-        } catch (writeError) {
-            const errMsg = writeError instanceof Error ? writeError.message : String(writeError);
-            const errStack = writeError instanceof Error ? writeError.stack : '';
-            writeLog(`EXR write error: ${errMsg}\nStack: ${errStack}`);
-            throw new Error(`Failed to write EXR: ${errMsg}`);
+
+            fs.writeFileSync(saveUri.fsPath, exrData);
+            writeLog(`EXR exported to: ${saveUri.fsPath}`);
+            vscode.window.showInformationMessage(`Exported to ${path.basename(saveUri.fsPath)}`);
         } finally {
             writer.dispose();
         }
-
-        // Write to file
-        fs.writeFileSync(saveUri.fsPath, exrData);
-
-        writeLog(`EXR exported to: ${saveUri.fsPath}`);
-        vscode.window.showInformationMessage(`Exported to ${path.basename(saveUri.fsPath)}`);
     }
 
     async openCustomDocument(
