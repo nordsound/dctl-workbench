@@ -213,6 +213,7 @@ const shaderStub = {
 
 const exrStub = {
     '@noCallThru': true,
+    '@global': true,
     EXRReader: class {
         read() {
             return {
@@ -363,7 +364,7 @@ describe('ExrEditorProvider — message handlers', () => {
             const msg = (panel.messages as any[]).find((m: any) => m.type === 'loadImage');
             assert.equal(msg.data.width, 1920);
             assert.equal(msg.data.height, 1080);
-            assert.equal(msg.data.channels, 3);
+            assert.equal(msg.data.channels, 4);
             assert.equal(msg.data.colorSpace, 'ACES2065-1');
             assert.equal(msg.data.colorSpaceDetected, true);
         });

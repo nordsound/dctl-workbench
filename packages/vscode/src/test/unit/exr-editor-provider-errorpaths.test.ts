@@ -228,6 +228,7 @@ const shaderStub = {
 
 const exrStub = {
     '@noCallThru': true,
+    '@global': true,
     EXRReader: class { read() { return exrReadFn(); } dispose() {} },
     EXRWriter: class { write() { return new Uint8Array(100); } dispose() {} },
     Compression: {},
