@@ -128,6 +128,7 @@ function createMockContext(extensionPath = '/mock/dctl-workbench') {
 
 const vscodeMock = {
     '@noCallThru': true,
+    '@global': true,
     EventEmitter: FakeEventEmitter,
     Uri: FakeUri,
     workspace: {

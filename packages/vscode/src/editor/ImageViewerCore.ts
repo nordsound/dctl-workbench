@@ -194,6 +194,25 @@ export class ImageViewerCore {
         };
     }
 
+    // =========================================================================
+    // Message handlers (migrated from ExrEditorProvider in S5)
+    // =========================================================================
+
+    /**
+     * Handle shader build result from webview — sets hasDctlSupport flag.
+     */
+    public handleShaderBuildResult(
+        panel: vscode.WebviewPanel,
+        hasDctlSupport: boolean,
+        error?: string
+    ): void {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        state.hasDctlSupport = hasDctlSupport;
+        writeLog(`Shader build result: hasDctlSupport=${hasDctlSupport}${error ? `, error=${error}` : ''}`);
+    }
+
     public dispose(): void {
         // Dispose all panels' state
         for (const [panel, state] of this.dctlStates) {

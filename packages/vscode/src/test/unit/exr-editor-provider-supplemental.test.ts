@@ -163,6 +163,7 @@ let mockTabGroups: Array<{ tabs: Array<{ input: any }> }> = [];
 
 const vscodeMock = {
     '@noCallThru': true,
+    '@global': true,
     EventEmitter: FakeEventEmitter,
     Uri: FakeUri,
     workspace: {

@@ -15,6 +15,7 @@ import { preprocessDctlSource } from '../dctl/preprocessor';
 import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
 import { parseCompressionSetting, parseWorkingColorSpace } from './settings-helpers';
 import { getViewerHtml } from './viewer-html';
+import { ImageViewerCore } from './ImageViewerCore';
 
 // DCTL state for each webview
 interface DctlState {
@@ -93,7 +94,11 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     // Track editor change subscriptions per panel
     private readonly editorChangeSubscriptions = new Map<vscode.WebviewPanel, vscode.Disposable[]>();
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    private readonly core: ImageViewerCore;
+
+    constructor(private readonly context: vscode.ExtensionContext) {
+        this.core = new ImageViewerCore(context);
+    }
 
     /**
      * Get list of active EXR viewer panels with their document info
@@ -781,10 +786,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         }
     }
 
-    /**
-     * Handle shader build result message from webview
-     * This tells us whether the DCTL compute pipeline was built successfully
-     */
     private handleShaderBuildResult(
         panel: vscode.WebviewPanel,
         hasDctlSupport: boolean,
