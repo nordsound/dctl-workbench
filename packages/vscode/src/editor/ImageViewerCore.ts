@@ -1,26 +1,30 @@
 /**
  * ImageViewerCore — Image-source-agnostic viewer logic.
  *
- * Manages per-panel state (DCTL, OCIO, RGC), shader compilation,
- * webview messaging, and export pipeline. The image decoding itself
- * is delegated to an InputPlugin (e.g. BuiltinExrInputPlugin).
+ * Owns all per-panel state (DCTL, OCIO, RGC) and handles DCTL-related
+ * messages from the webview. ExrEditorProvider delegates to this class
+ * for all state management and DCTL/shader operations.
  *
- * Created as an empty skeleton in A1/S4. Methods are migrated from
- * ExrEditorProvider in subsequent steps (S5-S11).
+ * Responsibilities migrated from ExrEditorProvider:
+ * - S4: Class skeleton + state maps
+ * - S5: DCTL handlers (toggle, RGC, color space, param, file load/watch)
+ * - S6: rebuildShaderWithDctl
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { performance } from 'perf_hooks';
-import type { DctlShaderInfo } from '../dctl/types';
+import { initOCIO, OCIOProcessor } from '@dctl-workbench/core';
+import { buildIntegratedShader } from '../shader';
+import { preprocessDctlSource } from '../dctl/preprocessor';
+import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
 import type { DctlState, OcioState } from './viewer-types';
 import { getViewerHtml } from './viewer-html';
 import { parseWorkingColorSpace } from './settings-helpers';
 import { writeLog } from '../shared/logger';
 
 export class ImageViewerCore {
-    // Per-panel state maps
+    // Per-panel state maps (sole owner — ExrEditorProvider accesses via public methods)
     private readonly dctlStates = new Map<vscode.WebviewPanel, DctlState>();
     private readonly ocioStates = new Map<vscode.WebviewPanel, OcioState>();
     private readonly panelInfos = new Map<vscode.WebviewPanel, { documentPath: string; lastActiveTime: number }>();
@@ -35,32 +39,12 @@ export class ImageViewerCore {
         private readonly context: vscode.ExtensionContext,
     ) {}
 
-    /**
-     * Get list of active panels sorted by last-active time (most recent first).
-     */
-    public getActivePanels(): { panel: vscode.WebviewPanel; documentPath: string; documentName: string }[] {
-        const panels: { panel: vscode.WebviewPanel; documentPath: string; documentName: string; lastActiveTime: number }[] = [];
-
-        for (const [panel, info] of this.panelInfos) {
-            panels.push({
-                panel,
-                documentPath: info.documentPath,
-                documentName: path.basename(info.documentPath),
-                lastActiveTime: info.lastActiveTime,
-            });
-        }
-
-        panels.sort((a, b) => b.lastActiveTime - a.lastActiveTime);
-
-        return panels.map(({ panel, documentPath, documentName }) => ({
-            panel,
-            documentPath,
-            documentName,
-        }));
-    }
+    // =========================================================================
+    // Panel lifecycle
+    // =========================================================================
 
     /**
-     * Attach a panel to the core: register state, set up HTML, wire message handlers.
+     * Attach a panel: register state, set up HTML, wire dispose + view state.
      * Called from ExrEditorProvider.resolveCustomEditor.
      */
     public attach(panel: vscode.WebviewPanel, documentPath: string): void {
@@ -103,6 +87,20 @@ export class ImageViewerCore {
             }
         });
 
+        // Listen for editor/tab changes to update open DCTL files list
+        const subscriptions: vscode.Disposable[] = [];
+        subscriptions.push(
+            vscode.window.onDidChangeVisibleTextEditors(() => {
+                this.sendOpenDctlFiles(panel);
+            })
+        );
+        subscriptions.push(
+            vscode.window.tabGroups.onDidChangeTabs(() => {
+                this.sendOpenDctlFiles(panel);
+            })
+        );
+        this.editorChangeSubscriptions.set(panel, subscriptions);
+
         // Cleanup on panel dispose
         panel.onDidDispose(() => {
             const state = this.dctlStates.get(panel);
@@ -123,43 +121,53 @@ export class ImageViewerCore {
     }
 
     /**
-     * Get the DCTL state for a panel (used by ExrEditorProvider during migration).
+     * Get active panels sorted by last-active time (most recent first).
      */
+    public getActivePanels(): { panel: vscode.WebviewPanel; documentPath: string; documentName: string }[] {
+        const panels: { panel: vscode.WebviewPanel; documentPath: string; documentName: string; lastActiveTime: number }[] = [];
+
+        for (const [panel, info] of this.panelInfos) {
+            panels.push({
+                panel,
+                documentPath: info.documentPath,
+                documentName: path.basename(info.documentPath),
+                lastActiveTime: info.lastActiveTime,
+            });
+        }
+
+        panels.sort((a, b) => b.lastActiveTime - a.lastActiveTime);
+
+        return panels.map(({ panel, documentPath, documentName }) => ({
+            panel,
+            documentPath,
+            documentName,
+        }));
+    }
+
+    // =========================================================================
+    // State accessors (for ExrEditorProvider during migration)
+    // =========================================================================
+
     public getDctlState(panel: vscode.WebviewPanel): DctlState | undefined {
         return this.dctlStates.get(panel);
     }
 
-    /**
-     * Get the OCIO state for a panel.
-     */
     public getOcioState(panel: vscode.WebviewPanel): OcioState | undefined {
         return this.ocioStates.get(panel);
     }
 
-    /**
-     * Set the OCIO state for a panel.
-     */
     public setOcioState(panel: vscode.WebviewPanel, state: OcioState): void {
         this.ocioStates.set(panel, state);
     }
 
-    /**
-     * Get the DCTL shader info for a panel.
-     */
     public getDctlShaderInfo(panel: vscode.WebviewPanel): DctlShaderInfo | undefined {
         return this.dctlShaderInfos.get(panel);
     }
 
-    /**
-     * Set the DCTL shader info for a panel.
-     */
-    public setDctlShaderInfo(panel: vscode.WebviewPanel, info: DctlShaderInfo): void {
-        this.dctlShaderInfos.set(panel, info);
+    public getPanelInfo(panel: vscode.WebviewPanel): { documentPath: string; lastActiveTime: number } | undefined {
+        return this.panelInfos.get(panel);
     }
 
-    /**
-     * Get the pending exports map (for export pipeline).
-     */
     public getPendingExports(): Map<string, {
         resolve: (data: { pixels: Float32Array; width: number; height: number }) => void;
         reject: (error: Error) => void;
@@ -167,12 +175,430 @@ export class ImageViewerCore {
         return this.pendingExports;
     }
 
-    /**
-     * Set editor change subscriptions for a panel.
-     */
-    public setEditorChangeSubscriptions(panel: vscode.WebviewPanel, subs: vscode.Disposable[]): void {
-        this.editorChangeSubscriptions.set(panel, subs);
+    // =========================================================================
+    // DCTL file detection
+    // =========================================================================
+
+    private getOpenDctlFiles(): { path: string; name: string }[] {
+        const dctlFiles: { path: string; name: string }[] = [];
+
+        for (const editor of vscode.window.visibleTextEditors) {
+            if (editor.document.fileName.endsWith('.dctl')) {
+                dctlFiles.push({
+                    path: editor.document.fileName,
+                    name: path.basename(editor.document.fileName),
+                });
+            }
+        }
+
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                if (tab.input instanceof vscode.TabInputText) {
+                    const uri = tab.input.uri;
+                    if (uri.fsPath.endsWith('.dctl')) {
+                        if (!dctlFiles.some(f => f.path === uri.fsPath)) {
+                            dctlFiles.push({
+                                path: uri.fsPath,
+                                name: path.basename(uri.fsPath),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        return dctlFiles;
     }
+
+    public sendOpenDctlFiles(panel: vscode.WebviewPanel): void {
+        const openDctlFiles = this.getOpenDctlFiles();
+        panel.webview.postMessage({
+            type: 'openDctlFiles',
+            files: openDctlFiles,
+        });
+        writeLog(`Sent ${openDctlFiles.length} open DCTL files to webview`);
+    }
+
+    // =========================================================================
+    // DCTL message handlers (S5)
+    // =========================================================================
+
+    public async handleSelectDctlFile(panel: vscode.WebviewPanel): Promise<void> {
+        const result = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'DCTL Files': ['dctl'],
+                'All Files': ['*'],
+            },
+            title: 'Select DCTL File',
+        });
+
+        if (!result || result.length === 0) {
+            return;
+        }
+
+        const filePath = result[0].fsPath;
+        await this.loadDctlFile(panel, filePath);
+    }
+
+    public async loadDctlFile(panel: vscode.WebviewPanel, filePath: string): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        writeLog(`Loading DCTL file: ${filePath}`);
+
+        try {
+            const rawDctlSource = fs.readFileSync(filePath, 'utf-8');
+            const preprocessResult = await preprocessDctlSource(rawDctlSource, filePath);
+
+            if (!preprocessResult.success) {
+                const errMsg = preprocessResult.errors.map((e: any) => e.message).join(', ');
+                throw new Error(`Preprocess failed: ${errMsg}`);
+            }
+
+            const dctlInfo = createDctlInfo(
+                preprocessResult.expandedSource,
+                state.workingColorSpace,
+                preprocessResult.params,
+                filePath
+            );
+
+            this.dctlShaderInfos.set(panel, dctlInfo);
+
+            state.filePath = filePath;
+            state.enabled = true;
+            state.params = dctlInfo.params;
+            state.includedFiles = preprocessResult.includedFiles;
+
+            state.paramValues = {};
+            for (const param of dctlInfo.params) {
+                state.paramValues[param.name] = param.default;
+            }
+
+            writeLog(`DCTL loaded: ${dctlInfo.params.length} params`);
+
+            panel.webview.postMessage({
+                type: 'loadDctl',
+                dctl: {
+                    filePath,
+                    params: dctlInfo.params,
+                    enabled: state.enabled,
+                    workingColorSpace: state.workingColorSpace,
+                },
+            });
+
+            this.setupDctlFileWatcher(panel, filePath, preprocessResult.includedFiles);
+
+            await this.rebuildShaderWithDctl(panel);
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            writeLog(`DCTL load error: ${message}`);
+            vscode.window.showErrorMessage(`Failed to load DCTL: ${message}`);
+        }
+    }
+
+    public async handleToggleDctl(panel: vscode.WebviewPanel, enabled: boolean): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        writeLog(`Toggle DCTL: ${enabled}`);
+        state.enabled = enabled;
+
+        await this.rebuildShaderWithDctl(panel);
+    }
+
+    public async handleToggleRgc(
+        panel: vscode.WebviewPanel,
+        enabled: boolean,
+        peakLuminance?: number
+    ): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        writeLog(`Toggle RGC: ${enabled}, peak: ${peakLuminance ?? state.rgcPeakLuminance} nits`);
+        state.applyRgc = enabled;
+        if (peakLuminance) state.rgcPeakLuminance = peakLuminance;
+
+        await this.rebuildShaderWithDctl(panel);
+    }
+
+    public async handleUpdateRgcSettings(
+        panel: vscode.WebviewPanel,
+        peakLuminance: number
+    ): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        writeLog(`Update RGC settings: peak=${peakLuminance} nits`);
+        state.rgcPeakLuminance = peakLuminance;
+
+        if (state.applyRgc) {
+            await this.rebuildShaderWithDctl(panel);
+        }
+    }
+
+    public async handleChangeDctlColorSpace(
+        panel: vscode.WebviewPanel,
+        colorSpace: 'ACES2065-1' | 'ACEScg' | 'ACEScc' | 'ACEScct' | 'linear_sRGB'
+    ): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        writeLog(`Change DCTL color space: ${colorSpace}`);
+        state.workingColorSpace = colorSpace;
+
+        await this.rebuildShaderWithDctl(panel);
+    }
+
+    public async handleUpdateDctlParam(
+        panel: vscode.WebviewPanel,
+        name: string,
+        value: number | boolean | DctlColorValue
+    ): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        state.paramValues[name] = value;
+
+        writeLog(`DCTL param update: ${name} = ${JSON.stringify(value)}, useUniformBuffer=${state.useUniformBuffer}, hasDctlSupport=${state.hasDctlSupport}`);
+
+        if (state.useUniformBuffer && state.hasDctlSupport) {
+            panel.webview.postMessage({
+                type: 'updateDctlParamFast',
+                name,
+                value,
+            });
+        } else {
+            writeLog(`Using slow path: useUniformBuffer=${state.useUniformBuffer}, hasDctlSupport=${state.hasDctlSupport}`);
+            await this.rebuildShaderWithDctl(panel);
+        }
+    }
+
+    public handleShaderBuildResult(
+        panel: vscode.WebviewPanel,
+        hasDctlSupport: boolean,
+        error?: string
+    ): void {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        state.hasDctlSupport = hasDctlSupport;
+        writeLog(`Shader build result: hasDctlSupport=${hasDctlSupport}${error ? `, error=${error}` : ''}`);
+    }
+
+    public handleRgcPixelVerification(
+        isBlack: boolean,
+        pixels: number[],
+        hasFullRgc: boolean
+    ): void {
+        const pixelStr = pixels.slice(0, 8).map(p => p.toFixed(4)).join(', ');
+        const status = isBlack ? 'BLACK (FAIL)' : 'OK (has content)';
+
+        writeLog(`[RGC VERIFICATION] Status: ${status}`);
+        writeLog(`[RGC VERIFICATION] hasFullRgc=${hasFullRgc}, isBlack=${isBlack}`);
+        writeLog(`[RGC VERIFICATION] Sample pixels: [${pixelStr}...]`);
+
+        if (isBlack) {
+            vscode.window.showWarningMessage(
+                'RGC rendering verification: Output appears to be BLACK. Check debug.log for details.'
+            );
+        }
+    }
+
+    public handleExportBufferReady(message: {
+        requestId: string;
+        success: boolean;
+        width?: number;
+        height?: number;
+        buffer?: ArrayBuffer;
+        error?: string;
+    }): void {
+        const pending = this.pendingExports.get(message.requestId);
+        if (!pending) {
+            writeLog(`Export response for unknown request: ${message.requestId}`);
+            return;
+        }
+
+        this.pendingExports.delete(message.requestId);
+
+        if (message.success && message.buffer && message.width && message.height) {
+            const bufferType = Object.prototype.toString.call(message.buffer);
+            writeLog(`Export buffer received: type=${bufferType}, width=${message.width}, height=${message.height}`);
+
+            let pixels: Float32Array;
+            if (message.buffer instanceof ArrayBuffer) {
+                pixels = new Float32Array(message.buffer);
+            } else if (ArrayBuffer.isView(message.buffer)) {
+                const view = message.buffer as unknown as ArrayBufferView;
+                pixels = new Float32Array(view.buffer, view.byteOffset, view.byteLength / 4);
+            } else {
+                const bufferObj = message.buffer as unknown;
+                if (typeof bufferObj === 'object' && bufferObj !== null) {
+                    const values = Object.values(bufferObj as Record<string, number>);
+                    writeLog(`Converting buffer object with ${values.length} values to Float32Array`);
+                    pixels = new Float32Array(values);
+                } else {
+                    pending.reject(new Error(`Unexpected buffer type: ${bufferType}`));
+                    return;
+                }
+            }
+
+            writeLog(`Created Float32Array with ${pixels.length} elements`);
+            pending.resolve({
+                pixels,
+                width: message.width,
+                height: message.height,
+            });
+        } else {
+            pending.reject(new Error(message.error || 'Export failed'));
+        }
+    }
+
+    // =========================================================================
+    // Shader rebuild (S6)
+    // =========================================================================
+
+    public async rebuildShaderWithDctl(panel: vscode.WebviewPanel): Promise<void> {
+        const state = this.dctlStates.get(panel);
+        const ocioState = this.ocioStates.get(panel);
+        if (!state || !ocioState) return;
+
+        try {
+            await initOCIO();
+            const processor = new OCIOProcessor();
+            processor.init();
+            processor.createDisplayTransform(
+                ocioState.source,
+                ocioState.display,
+                ocioState.view
+            );
+            processor.setupGpuProcessor();
+            const ocioShaderInfo = processor.extractGpuShaderInfo();
+            processor.dispose();
+
+            let dctlShaderInfo = undefined;
+            let dctlSource: string | undefined = undefined;
+            if (state.enabled && state.filePath) {
+                const rawDctlSource = fs.readFileSync(state.filePath, 'utf-8');
+                dctlSource = rawDctlSource;
+
+                const preprocessResult = await preprocessDctlSource(rawDctlSource, state.filePath);
+                if (preprocessResult.success) {
+                    dctlShaderInfo = createDctlInfo(
+                        preprocessResult.expandedSource,
+                        state.workingColorSpace,
+                        preprocessResult.params,
+                        state.filePath ?? undefined
+                    );
+                    this.dctlShaderInfos.set(panel, dctlShaderInfo);
+                }
+            }
+
+            const extensionPath = this.context.extensionPath;
+
+            writeLog(`Shader rebuild: state.enabled=${state.enabled}, dctlShaderInfo=${dctlShaderInfo ? 'exists' : 'undefined'}`);
+            writeLog(`Shader rebuild with params: ${JSON.stringify(state.paramValues)}, useUniformBuffer: ${state.useUniformBuffer}`);
+            writeLog(`Shader rebuild RGC: applyRgc=${state.applyRgc}, peakLuminance=${state.rgcPeakLuminance}`);
+
+            const dctlOptions = {
+                paramValues: state.useUniformBuffer ? undefined : state.paramValues,
+                enabled: state.enabled,
+                imageWidth: state.imageWidth,
+                imageHeight: state.imageHeight,
+                useUniformBuffer: state.useUniformBuffer,
+                useRustCompiler: true,
+                dctlSource,
+                dctlFilePath: state.filePath ?? undefined,
+                applyACES2GamutCompression: state.applyRgc,
+                peakLuminance: state.rgcPeakLuminance,
+            };
+
+            const integratedShader = await buildIntegratedShader(
+                extensionPath,
+                ocioShaderInfo,
+                dctlShaderInfo,
+                dctlOptions
+            );
+
+            if (integratedShader.success) {
+                writeLog(`Shader rebuild SUCCESS: WGSL length=${integratedShader.wgslCode.length}, useUniformBuffer=${integratedShader.useUniformBuffer}`);
+                const dctlInfo = integratedShader.dctlComputeShaderInfo;
+                if (dctlInfo) {
+                    writeLog(`DCTL Compute Shader: success=${dctlInfo.success}, hasDctl=${dctlInfo.hasDctl}, hasFullRgc=${dctlInfo.hasFullRgc}, error=${dctlInfo.error || 'none'}`);
+                }
+            } else {
+                writeLog(`Shader rebuild FAILED: ${integratedShader.error}`);
+            }
+
+            panel.webview.postMessage({
+                type: 'updateShader',
+                shaderInfo: {
+                    shaderText: integratedShader.glslCode || '',
+                    textures: ocioShaderInfo.textures,
+                    textures3D: ocioShaderInfo.textures3D,
+                    uniforms: ocioShaderInfo.uniforms,
+                },
+                wgslShaderInfo: integratedShader.success ? {
+                    wgslCode: integratedShader.wgslCode,
+                    computeWgslCode: integratedShader.computeWgslCode,
+                    textures: ocioShaderInfo.textures,
+                    textures3D: ocioShaderInfo.textures3D,
+                    bindings: integratedShader.bindings,
+                    dctlBindings: integratedShader.dctlBindings,
+                    dctlDefaults: integratedShader.dctlDefaults,
+                    paramMapping: integratedShader.paramMapping,
+                    useUniformBuffer: integratedShader.useUniformBuffer,
+                    uniformBufferBinding: integratedShader.uniformBufferBinding,
+                    dctlComputeShaderInfo: integratedShader.dctlComputeShaderInfo,
+                } : null,
+            });
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            writeLog(`Shader rebuild error: ${message}`);
+        }
+    }
+
+    // =========================================================================
+    // File watcher
+    // =========================================================================
+
+    private setupDctlFileWatcher(
+        panel: vscode.WebviewPanel,
+        mainFile: string,
+        includedFiles: string[]
+    ): void {
+        const state = this.dctlStates.get(panel);
+        if (!state) return;
+
+        if (state.fileWatcher) {
+            state.fileWatcher.dispose();
+        }
+
+        const filesToWatch = [mainFile, ...includedFiles];
+        const pattern = filesToWatch.length === 1
+            ? mainFile
+            : `{${filesToWatch.join(',')}}`;
+
+        state.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+        const onFileChange = async (uri: vscode.Uri) => {
+            writeLog(`DCTL file changed: ${uri.fsPath}`);
+            if (state.filePath) {
+                await this.loadDctlFile(panel, state.filePath);
+            }
+        };
+
+        state.fileWatcher.onDidChange(onFileChange);
+        state.fileWatcher.onDidCreate(onFileChange);
+    }
+
+    // =========================================================================
+    // Default state
+    // =========================================================================
 
     private createDefaultDctlState(): DctlState {
         return {
@@ -194,28 +620,8 @@ export class ImageViewerCore {
         };
     }
 
-    // =========================================================================
-    // Message handlers (migrated from ExrEditorProvider in S5)
-    // =========================================================================
-
-    /**
-     * Handle shader build result from webview — sets hasDctlSupport flag.
-     */
-    public handleShaderBuildResult(
-        panel: vscode.WebviewPanel,
-        hasDctlSupport: boolean,
-        error?: string
-    ): void {
-        const state = this.dctlStates.get(panel);
-        if (!state) return;
-
-        state.hasDctlSupport = hasDctlSupport;
-        writeLog(`Shader build result: hasDctlSupport=${hasDctlSupport}${error ? `, error=${error}` : ''}`);
-    }
-
     public dispose(): void {
-        // Dispose all panels' state
-        for (const [panel, state] of this.dctlStates) {
+        for (const [, state] of this.dctlStates) {
             if (state.fileWatcher) {
                 state.fileWatcher.dispose();
             }
