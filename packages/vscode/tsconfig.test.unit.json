@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "mocha", "@webgpu/types"],
+    "composite": false,
+    "rootDir": ".",
+    "outDir": "out",
+    "baseUrl": ".",
+    "paths": {
+      "vscode": ["./src/test/mocks/vscode"]
+    }
+  },
+  "include": [
+    "src/test/unit/**/*",
+    "src/test/contracts/**/*",
+    "src/test/mocks/**/*"
+  ],
+  "exclude": ["node_modules", "src/test/integration"]
+}
