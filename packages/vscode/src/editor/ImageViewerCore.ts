@@ -238,13 +238,6 @@ export class ImageViewerCore {
         return this.panelInfos.get(panel);
     }
 
-    public getPendingExports(): Map<string, {
-        resolve: (data: { pixels: Float32Array; width: number; height: number }) => void;
-        reject: (error: Error) => void;
-    }> {
-        return this.pendingExports;
-    }
-
     // =========================================================================
     // DCTL file detection
     // =========================================================================
@@ -320,7 +313,7 @@ export class ImageViewerCore {
         writeLog(`Loading DCTL file: ${filePath}`);
 
         try {
-            const rawDctlSource = fs.readFileSync(filePath, 'utf-8');
+            const rawDctlSource = await fs.promises.readFile(filePath, 'utf-8');
             const preprocessResult = await preprocessDctlSource(rawDctlSource, filePath);
 
             if (!preprocessResult.success) {
@@ -552,7 +545,7 @@ export class ImageViewerCore {
             let dctlShaderInfo = undefined;
             let dctlSource: string | undefined = undefined;
             if (state.enabled && state.filePath) {
-                const rawDctlSource = fs.readFileSync(state.filePath, 'utf-8');
+                const rawDctlSource = await fs.promises.readFile(state.filePath, 'utf-8');
                 dctlSource = rawDctlSource;
 
                 const preprocessResult = await preprocessDctlSource(rawDctlSource, state.filePath);
@@ -841,9 +834,12 @@ export class ImageViewerCore {
         }
 
         // Send shader to webview and request rendered buffer in one round-trip
-        const requestId = `export-${Date.now()}`;
+        const requestId = `export-${crypto.randomUUID()}`;
 
         return new Promise((resolve, reject) => {
+            // On timeout we delete the pending entry and reject. The webview may
+            // still send exportBufferReady later — handleExportBufferReady logs
+            // "unknown request" and discards it safely.
             const timeout = setTimeout(() => {
                 this.pendingExports.delete(requestId);
                 reject(new Error('Export timeout'));

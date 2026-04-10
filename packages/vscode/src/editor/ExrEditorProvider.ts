@@ -14,13 +14,8 @@ import { DctlRuntime } from '@dctl-workbench/core';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
 import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
-
-// Debug logging - use shared logger module
-import { initLog as sharedInitLog, writeLog } from '../shared/logger';
-
-function initLog(extensionPath: string): void {
-    sharedInitLog(extensionPath);
-}
+import { findWasmDir } from './wasm-utils';
+import { initLog, writeLog } from '../shared/logger';
 
 // Performance timing helper
 class PerfTimer {
@@ -194,20 +189,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         writeLog(`Save path selected: ${saveUri.fsPath}`);
 
         // Write EXR file
-        const possibleWasmDirs = [
-            path.join(this.context.extensionPath, 'wasm'),
-            path.join(this.context.extensionPath, 'out', 'wasm'),
-        ];
-        let wasmDir = possibleWasmDirs[0];
-        for (const dir of possibleWasmDirs) {
-            const testPath = path.join(dir, 'openexr.js');
-            if (fs.existsSync(testPath)) {
-                wasmDir = dir;
-                break;
-            }
-        }
-
-        setOpenEXRWasmDirectory(wasmDir);
+        setOpenEXRWasmDirectory(findWasmDir(this.context.extensionPath));
         const exrModule = await initOpenEXR(true);
         if (!exrModule) {
             throw new Error('Failed to initialize OpenEXR WASM module');
@@ -289,18 +271,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             const metadata = this.plugin.getMetadata();
             perf.lap(`Decode image (${decoded.width}x${decoded.height})`);
 
-            // Find WASM dir for OCIO
-            const possibleWasmDirs = [
-                path.join(this.context.extensionPath, 'out', 'wasm'),
-                path.join(this.context.extensionPath, 'wasm'),
-            ];
-            let wasmDir = possibleWasmDirs[0];
-            for (const dir of possibleWasmDirs) {
-                if (fs.existsSync(path.join(dir, 'ocio.js')) || fs.existsSync(path.join(dir, 'openexr.js'))) {
-                    wasmDir = dir;
-                    break;
-                }
-            }
+            const wasmDir = findWasmDir(this.context.extensionPath);
 
             // Delegate OCIO init, shader build, and webview postMessage to core
             await this.core.loadImageData(panel, {

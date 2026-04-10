@@ -7,10 +7,9 @@
  * Created in A1/S8 as part of the ImageViewerCore refactoring.
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
 import { EXRReader, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory } from '../exr';
 import type { InputPlugin, DecodedImage, ImageMetadata, ProcessOptions, Chromaticities } from './types';
+import { findWasmDir } from '../editor/wasm-utils';
 
 export class BuiltinExrInputPlugin implements InputPlugin {
     readonly id = 'nordsound.builtin-exr';
@@ -36,20 +35,7 @@ export class BuiltinExrInputPlugin implements InputPlugin {
     }
 
     async init(): Promise<void> {
-        // Find WASM directory
-        const possibleWasmDirs = [
-            path.join(this.extensionPath, 'out', 'wasm'),
-            path.join(this.extensionPath, 'wasm'),
-        ];
-        let wasmDir = possibleWasmDirs[0];
-        for (const dir of possibleWasmDirs) {
-            const testPath = path.join(dir, 'openexr.js');
-            if (fs.existsSync(testPath)) {
-                wasmDir = dir;
-                break;
-            }
-        }
-
+        const wasmDir = findWasmDir(this.extensionPath);
         setOpenEXRWasmDirectory(wasmDir);
         this.exrModule = await initOpenEXR();
     }

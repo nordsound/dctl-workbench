@@ -259,6 +259,9 @@ const fsStub = {
         if (encoding === 'utf-8') return '// DCTL source';
         return Buffer.from([0x76, 0x2f, 0x31, 0x01]);
     },
+    promises: {
+        readFile: async (_path: string, _encoding?: string) => '// DCTL source',
+    },
     writeFileSync: () => {},
     existsSync: () => true,
 };
@@ -443,14 +446,14 @@ describe('ExrEditorProvider — error paths', () => {
             panel.dispose();
         });
 
-        it('fs.readFileSync failure shows error dialog', async () => {
-            // Temporarily override fsStub.readFileSync
-            const origReadFile = fsStub.readFileSync;
-            fsStub.readFileSync = (p: string, encoding?: string) => {
-                if (encoding === 'utf-8' && p.endsWith('.dctl')) {
+        it('fs.promises.readFile failure shows error dialog', async () => {
+            // Temporarily override fsStub.promises.readFile
+            const origReadFile = fsStub.promises.readFile;
+            fsStub.promises.readFile = async (p: string, _encoding?: string) => {
+                if (p.endsWith('.dctl')) {
                     throw new Error('ENOENT: no such file');
                 }
-                return origReadFile(p, encoding);
+                return origReadFile(p, _encoding);
             };
 
             const provider = new ExrEditorProvider(createMockContext());
@@ -462,7 +465,7 @@ describe('ExrEditorProvider — error paths', () => {
             assert.ok(spy.errorMessages.some(m => m.includes('ENOENT')),
                 'should show error dialog for missing file');
 
-            fsStub.readFileSync = origReadFile;
+            fsStub.promises.readFile = origReadFile;
             panel.dispose();
         });
     });

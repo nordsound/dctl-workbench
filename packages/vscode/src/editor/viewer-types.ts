@@ -1,16 +1,13 @@
 /**
  * Shared type definitions for ImageViewerCore.
  *
- * These types are extracted from ExrEditorProvider as the first step
- * of the ImageViewerCore refactoring (A1/S1). They define per-panel
- * viewer state, per-panel OCIO state, and a decode cache for sharing
- * decoded image data across panels viewing the same file.
+ * Per-panel DCTL state and OCIO display transform state.
  */
 
 import type * as vscode from 'vscode';
-import type { DctlParam, DctlColorValue, DctlShaderInfo } from '../dctl/types';
+import type { DctlParam, DctlColorValue } from '../dctl/types';
 
-/** OCIO display transform state — will become per-panel in S2. */
+/** OCIO display transform state per panel. */
 export interface OcioState {
     source: string;
     display: string;
@@ -32,28 +29,4 @@ export interface DctlState {
     hasDctlSupport: boolean;
     applyRgc: boolean;
     rgcPeakLuminance: number;
-}
-
-/** Per-panel viewer state (DCTL + OCIO + panel metadata). */
-export interface ViewerState {
-    dctl: DctlState;
-    ocio: OcioState | null;
-    documentPath: string;
-    lastActiveTime: number;
-    dctlShaderInfo: DctlShaderInfo | null;
-    editorChangeSubscriptions: vscode.Disposable[];
-}
-
-/** Cached decode result, keyed by document URI string. */
-export interface DecodedImageCache {
-    uri: string;
-    width: number;
-    height: number;
-    channels: number;
-    pixels: Float32Array;
-    colorSpace: string;
-    colorSpaceDetected: boolean;
-    compression: string;
-    bitDepth: string;
-    timestamp: number;
 }

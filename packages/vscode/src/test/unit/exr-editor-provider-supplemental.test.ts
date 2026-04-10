@@ -298,6 +298,9 @@ const fsStub = {
         if (encoding === 'utf-8') return '// DCTL source';
         return Buffer.from([0x76, 0x2f, 0x31, 0x01]);
     },
+    promises: {
+        readFile: async (_path: string, _encoding?: string) => '// DCTL source',
+    },
     writeFileSync: () => {},
     existsSync: () => true,
 };
