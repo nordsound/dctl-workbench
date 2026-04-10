@@ -47,9 +47,6 @@ class PerfTimer {
 export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<ExrDocument> {
     public static readonly viewType = 'dctlWorkbench.exrEditor';
 
-    private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentContentChangeEvent<ExrDocument>>();
-    public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
-
     private readonly core: ImageViewerCore;
     private readonly plugin: BuiltinExrInputPlugin;
 
@@ -76,16 +73,24 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
      * Open an EXR file and optionally load a DCTL file
      */
     public async openExrWithDctl(exrPath: string, dctlPath?: string): Promise<void> {
-        // Open the EXR file using VSCode's default mechanism
         const uri = vscode.Uri.file(exrPath);
         await vscode.commands.executeCommand('vscode.openWith', uri, ExrEditorProvider.viewType);
 
-        // If a DCTL path is provided, we need to wait for the panel to be ready
-        // The DCTL will be loaded via the 'openDctlFiles' mechanism
         if (dctlPath) {
-            // Store the pending DCTL path - will be loaded when panel becomes ready
-            // For now, rely on auto-detection of open DCTL files
-            writeLog(`EXR opened with DCTL: ${dctlPath}`);
+            // Queue DCTL load — panel may not be tracked yet, poll briefly
+            const loadDctl = async () => {
+                for (let i = 0; i < 20; i++) {
+                    const panels = this.core.getActivePanels();
+                    const target = panels.find(p => p.documentPath === exrPath);
+                    if (target) {
+                        await this.core.loadDctlFile(target.panel, dctlPath);
+                        return;
+                    }
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                writeLog(`openExrWithDctl: panel for ${exrPath} not found after 2s`);
+            };
+            loadDctl();
         }
     }
 

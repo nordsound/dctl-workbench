@@ -45,6 +45,8 @@ export class BuiltinExrInputPlugin implements InputPlugin {
     }
 
     async load(data: Uint8Array): Promise<void> {
+        this.parsedData = null; // Release previous data before new allocation
+
         if (!this.exrModule) {
             await this.init();
         }

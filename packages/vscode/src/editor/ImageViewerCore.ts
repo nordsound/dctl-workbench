@@ -222,15 +222,15 @@ export class ImageViewerCore {
         return this.dctlStates.get(panel);
     }
 
-    public getOcioState(panel: vscode.WebviewPanel): OcioState | undefined {
+    private getOcioState(panel: vscode.WebviewPanel): OcioState | undefined {
         return this.ocioStates.get(panel);
     }
 
-    public setOcioState(panel: vscode.WebviewPanel, state: OcioState): void {
+    private setOcioState(panel: vscode.WebviewPanel, state: OcioState): void {
         this.ocioStates.set(panel, state);
     }
 
-    public getDctlShaderInfo(panel: vscode.WebviewPanel): DctlShaderInfo | undefined {
+    private getDctlShaderInfo(panel: vscode.WebviewPanel): DctlShaderInfo | undefined {
         return this.dctlShaderInfos.get(panel);
     }
 
@@ -530,17 +530,7 @@ export class ImageViewerCore {
         if (!state || !ocioState) return;
 
         try {
-            await initOCIO();
-            const processor = new OCIOProcessor();
-            processor.init();
-            processor.createDisplayTransform(
-                ocioState.source,
-                ocioState.display,
-                ocioState.view
-            );
-            processor.setupGpuProcessor();
-            const ocioShaderInfo = processor.extractGpuShaderInfo();
-            processor.dispose();
+            const ocioShaderInfo = await this.buildOcioShader(ocioState.source, ocioState.display, ocioState.view);
 
             let dctlShaderInfo = undefined;
             let dctlSource: string | undefined = undefined;
@@ -652,13 +642,7 @@ export class ImageViewerCore {
 
         // No DCTL active - build OCIO-only shader
         try {
-            await initOCIO();
-            const processor = new OCIOProcessor();
-            processor.init();
-            processor.createDisplayTransform(source, display, view);
-            processor.setupGpuProcessor();
-            const shaderInfo = processor.extractGpuShaderInfo();
-            processor.dispose();
+            const shaderInfo = await this.buildOcioShader(source, display, view);
 
             // Convert GLSL to WGSL for WebGPU
             const extensionPath = this.context.extensionPath;
@@ -723,28 +707,11 @@ export class ImageViewerCore {
 
         // Initialize OCIO and get available displays/views/color spaces
         setWasmDirectory(wasmDir);
-        await initOCIO();
-        const processor = new OCIOProcessor();
-        processor.init();
-
-        const colorSpaces = processor.getColorSpaces();
-        const displays = processor.getDisplays();
-        const displayViewMap: Record<string, string[]> = {};
-        for (const display of displays) {
-            displayViewMap[display] = processor.getViews(display);
-        }
-
-        // Get GPU shader for default transform (source -> sRGB display)
-        const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
-        const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
+        const { colorSpaces, displays, displayViewMap, defaultDisplay, defaultView, shaderInfo } =
+            await this.buildOcioShaderWithConfig(imageData.colorSpace);
 
         // Store OCIO state per panel for DCTL shader rebuilding
         this.ocioStates.set(panel, { source: imageData.colorSpace, display: defaultDisplay, view: defaultView });
-
-        processor.createDisplayTransform(imageData.colorSpace, defaultDisplay, defaultView);
-        processor.setupGpuProcessor();
-        const shaderInfo = processor.extractGpuShaderInfo();
-        processor.dispose();
 
         // Convert GLSL to WGSL for WebGPU
         const extensionPath = this.context.extensionPath;
@@ -873,6 +840,52 @@ export class ImageViewerCore {
     }
 
     // =========================================================================
+    // OCIO helper
+    // =========================================================================
+
+    /**
+     * Initialize OCIO, build a display transform, extract GPU shader info.
+     * Centralizes the 6-line ceremony that was repeated in 3 places.
+     */
+    private async buildOcioShader(source: string, display: string, view: string) {
+        await initOCIO();
+        const processor = new OCIOProcessor();
+        processor.init();
+        processor.createDisplayTransform(source, display, view);
+        processor.setupGpuProcessor();
+        const shaderInfo = processor.extractGpuShaderInfo();
+        processor.dispose();
+        return shaderInfo;
+    }
+
+    /**
+     * Initialize OCIO, enumerate config, pick default display/view,
+     * and build the shader — used by loadImageData for first-time setup.
+     */
+    private async buildOcioShaderWithConfig(source: string) {
+        await initOCIO();
+        const processor = new OCIOProcessor();
+        processor.init();
+
+        const colorSpaces = processor.getColorSpaces();
+        const displays = processor.getDisplays();
+        const displayViewMap: Record<string, string[]> = {};
+        for (const d of displays) {
+            displayViewMap[d] = processor.getViews(d);
+        }
+
+        const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
+        const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
+
+        processor.createDisplayTransform(source, defaultDisplay, defaultView);
+        processor.setupGpuProcessor();
+        const shaderInfo = processor.extractGpuShaderInfo();
+        processor.dispose();
+
+        return { colorSpaces, displays, displayViewMap, defaultDisplay, defaultView, shaderInfo };
+    }
+
+    // =========================================================================
     // File watcher
     // =========================================================================
 
@@ -940,6 +953,9 @@ export class ImageViewerCore {
         this.panelInfos.clear();
         this.ocioStates.clear();
         this.dctlShaderInfos.clear();
+        for (const [, pending] of this.pendingExports) {
+            pending.reject(new Error('ImageViewerCore disposed'));
+        }
         this.pendingExports.clear();
 
         for (const [, subs] of this.editorChangeSubscriptions) {
