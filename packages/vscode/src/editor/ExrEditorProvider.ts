@@ -87,12 +87,8 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     // Track panel info for external access (document path, panel reference)
     private readonly panelInfos = new Map<vscode.WebviewPanel, { documentPath: string; lastActiveTime: number }>();
 
-    // Current OCIO state for shader rebuilding
-    private currentOcioState: {
-        source: string;
-        display: string;
-        view: string;
-    } | null = null;
+    // OCIO state per panel (previously a single shared object — bug fixed in A1/S2)
+    private readonly ocioStates = new Map<vscode.WebviewPanel, { source: string; display: string; view: string }>();
 
     // Track editor change subscriptions per panel
     private readonly editorChangeSubscriptions = new Map<vscode.WebviewPanel, vscode.Disposable[]>();
@@ -644,8 +640,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             }
             this.dctlStates.delete(webviewPanel);
 
-            // Cleanup panel info
+            // Cleanup panel info and OCIO state
             this.panelInfos.delete(webviewPanel);
+            this.ocioStates.delete(webviewPanel);
 
             // Cleanup DCTL shader info
             this.dctlShaderInfos.delete(webviewPanel);
@@ -912,8 +909,8 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
             const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
 
-            // Store OCIO state for DCTL shader rebuilding
-            this.currentOcioState = { source: colorSpace, display: defaultDisplay, view: defaultView };
+            // Store OCIO state per panel for DCTL shader rebuilding
+            this.ocioStates.set(panel, { source: colorSpace, display: defaultDisplay, view: defaultView });
 
             processor.createDisplayTransform(colorSpace, defaultDisplay, defaultView);
             processor.setupGpuProcessor();
@@ -987,8 +984,8 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         display: string,
         view: string
     ): Promise<void> {
-        // Store OCIO state for DCTL shader rebuilding
-        this.currentOcioState = { source, display, view };
+        // Store OCIO state per panel for DCTL shader rebuilding
+        this.ocioStates.set(panel, { source, display, view });
 
         // Check if DCTL is active - if so, rebuild with DCTL included
         const dctlState = this.dctlStates.get(panel);
@@ -1220,7 +1217,8 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
 
     private async rebuildShaderWithDctl(panel: vscode.WebviewPanel): Promise<void> {
         const state = this.dctlStates.get(panel);
-        if (!state || !this.currentOcioState) return;
+        const ocioState = this.ocioStates.get(panel);
+        if (!state || !ocioState) return;
 
         try {
             // Get OCIO shader
@@ -1228,9 +1226,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             const processor = new OCIOProcessor();
             processor.init();
             processor.createDisplayTransform(
-                this.currentOcioState.source,
-                this.currentOcioState.display,
-                this.currentOcioState.view
+                ocioState.source,
+                ocioState.display,
+                ocioState.view
             );
             processor.setupGpuProcessor();
             const ocioShaderInfo = processor.extractGpuShaderInfo();
