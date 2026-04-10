@@ -247,6 +247,7 @@ const shaderStub = {
 
 const exrStub = {
     '@noCallThru': true,
+    '@global': true,
     EXRReader: class {
         read() {
             return {

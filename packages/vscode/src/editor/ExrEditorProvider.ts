@@ -9,11 +9,12 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { performance } from 'perf_hooks';
-import { EXRReader, EXRWriter, Compression, PixelType, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory, isOpenEXRInitialized } from '../exr';
+import { EXRWriter, PixelType, initOpenEXR, setOpenEXRWasmDirectory } from '../exr';
 import { DctlRuntime } from '@dctl-workbench/core';
 import { buildDctlExportShader } from '../shader';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
+import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
 
 // Debug logging - use shared logger module
 import { initLog as sharedInitLog, writeLog } from '../shared/logger';
@@ -59,9 +60,11 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
     private readonly core: ImageViewerCore;
+    private readonly plugin: BuiltinExrInputPlugin;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.core = new ImageViewerCore(context);
+        this.plugin = new BuiltinExrInputPlugin(context.extensionPath);
     }
 
     /**
@@ -535,72 +538,46 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         webview.postMessage({ type: 'startLoading' });
 
         try {
-            // Read EXR file - use fs.readFileSync for local files (much faster than vscode.workspace.fs)
+            // Read file data
             let fileData: Uint8Array;
             if (document.uri.scheme === 'file') {
                 fileData = fs.readFileSync(document.uri.fsPath);
             } else {
                 fileData = await vscode.workspace.fs.readFile(document.uri);
             }
-            perf.lap('Read EXR file from disk');
+            perf.lap('Read file from disk');
 
-            // Initialize OpenEXR WASM (cached for subsequent loads)
+            // Decode via input plugin
+            await this.plugin.load(new Uint8Array(fileData));
+            const decoded = await this.plugin.getImageData();
+            const metadata = this.plugin.getMetadata();
+            perf.lap(`Decode image (${decoded.width}x${decoded.height})`);
+
+            // Find WASM dir for OCIO
             const possibleWasmDirs = [
-                path.join(this.context.extensionPath, 'out', 'wasm'),    // Compiled output
-                path.join(this.context.extensionPath, 'wasm'),           // Development
+                path.join(this.context.extensionPath, 'out', 'wasm'),
+                path.join(this.context.extensionPath, 'wasm'),
             ];
             let wasmDir = possibleWasmDirs[0];
             for (const dir of possibleWasmDirs) {
-                const testPath = path.join(dir, 'openexr.js');
-                if (fs.existsSync(testPath)) {
+                if (fs.existsSync(path.join(dir, 'ocio.js')) || fs.existsSync(path.join(dir, 'openexr.js'))) {
                     wasmDir = dir;
                     break;
                 }
             }
-            const wasCached = isOpenEXRInitialized();
-            setOpenEXRWasmDirectory(wasmDir);
-            const exrModule = await initOpenEXR();
-            perf.lap(wasCached ? 'OpenEXR WASM (cached)' : 'Initialize OpenEXR WASM');
-
-            const reader = new EXRReader(exrModule);
-            const imageData = reader.read(new Uint8Array(fileData));
-            reader.dispose();
-            perf.lap(`Parse EXR (${imageData.width}x${imageData.height})`);
-
-            // Identify color space from chromaticities
-            // Default to sRGB if no chromaticities metadata
-            let colorSpace = 'sRGB - Texture';
-            let colorSpaceDetected = false;
-            if (imageData.chromaticities) {
-                const identified = identifyColorSpace(imageData.chromaticities);
-                if (identified !== 'unknown') {
-                    const ocioNameMap: Record<string, string> = {
-                        'ACES2065-1': 'ACES2065-1',
-                        'ACEScg': 'ACEScg',
-                        'sRGB': 'sRGB - Texture',
-                        'Rec.709': 'sRGB - Texture',
-                        'Rec.2020': 'Rec.2020 (OETF)',
-                        'DCI-P3': 'P3-D65',
-                        'Display P3': 'P3-D65',
-                    };
-                    colorSpace = ocioNameMap[identified] || identified;
-                    colorSpaceDetected = true;
-                }
-            }
-            perf.lap('Identify color space');
 
             // Delegate OCIO init, shader build, and webview postMessage to core
             await this.core.loadImageData(panel, {
-                width: imageData.width,
-                height: imageData.height,
-                channels: imageData.channels.length,
-                buffer: imageData.pixels.buffer as ArrayBuffer,
-                byteOffset: imageData.pixels.byteOffset,
-                byteLength: imageData.pixels.byteLength,
-                colorSpace,
-                colorSpaceDetected,
-                compression: imageData.compressionName || 'unknown',
-                bitDepth: imageData.pixelTypeName || 'unknown',
+                width: decoded.width,
+                height: decoded.height,
+                channels: decoded.channels,
+                buffer: decoded.pixels.buffer as ArrayBuffer,
+                byteOffset: decoded.pixels.byteOffset,
+                byteLength: decoded.pixels.byteLength,
+                colorSpace: decoded.colorSpace,
+                colorSpaceDetected: !!metadata.chromaticities,
+                compression: `${decoded.bitsPerSample}-bit float`,
+                bitDepth: decoded.pixelFormat === 'rgba32float' ? 'FLOAT' : 'HALF',
             }, wasmDir);
             perf.lap('OCIO + shader + postMessage');
             perf.end();
