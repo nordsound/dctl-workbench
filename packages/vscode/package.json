@@ -203,8 +203,8 @@
     "bundle": "node esbuild.config.mjs",
     "clean": "rm -rf out",
     "package": "vsce package",
-    "test": "TS_NODE_PROJECT=tsconfig.test.unit.json mocha --require ts-node/register --require tsconfig-paths/register 'src/test/unit/**/*.test.ts'",
-    "test:unit": "TS_NODE_PROJECT=tsconfig.test.unit.json mocha --require ts-node/register --require tsconfig-paths/register 'src/test/unit/**/*.test.ts'",
+    "test": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
+    "test:unit": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
     "compile:test": "tsc -p tsconfig.test.json",
     "pretest:integration": "rm -rf out/src/test && npm run compile && npm run compile:test",
     "test:integration": "bash scripts/run-integration-tests.sh",
@@ -227,7 +227,6 @@
     "glob": "^13.0.2",
     "mocha": "^11.7.5",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3",
     "zod": "^4.3.6"
   }
