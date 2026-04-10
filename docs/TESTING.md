@@ -214,7 +214,7 @@ import * as vscode from 'vscode';
 
 suite('Extension Activation', () => {
     test('Extension should activate', async () => {
-        const ext = vscode.extensions.getExtension('your-publisher.dctl-workbench');
+        const ext = vscode.extensions.getExtension('nordsound.dctl-workbench');
         assert.ok(ext, 'Extension should be present');
 
         await ext.activate();
