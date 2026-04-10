@@ -19,6 +19,7 @@ export * from './ocio/index.js';
 export * from './semantic/index.js';
 export * from './validation/index.js';
 export * from './shared/index.js';
+export * from './utils/index.js';
 
 // Import for DctlRuntime class
 import { DctlCompiler, isCompileError } from './compiler/index.js';
