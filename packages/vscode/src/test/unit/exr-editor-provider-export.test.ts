@@ -140,6 +140,7 @@ let showSaveDialogFn: () => Promise<any> = async () => FakeUri.file('/tmp/output
 
 const vscodeMock = {
     '@noCallThru': true,
+    '@global': true,
     EventEmitter: FakeEventEmitter,
     Uri: FakeUri,
     workspace: {
