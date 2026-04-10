@@ -209,6 +209,7 @@ const vscodeMock = {
 
 const coreStub = {
     '@noCallThru': true,
+    '@global': true,
     initOCIO: async () => {},
     OCIOProcessor: class {
         init() {}
@@ -228,6 +229,7 @@ const coreStub = {
 
 const shaderStub = {
     '@noCallThru': true,
+    '@global': true,
     buildWgslShader: async () => ({
         success: true, wgslCode: '// wgsl', computeWgslCode: '// compute', bindings: [],
     }),
@@ -271,6 +273,7 @@ const exrStub = {
 
 const preprocessorStub = {
     '@noCallThru': true,
+    '@global': true,
     preprocessDctlSource: async () => ({
         success: true,
         expandedSource: '// preprocessed',
@@ -282,12 +285,14 @@ const preprocessorStub = {
 
 const dctlTypesStub = {
     '@noCallThru': true,
+    '@global': true,
     createDctlInfo: (_source: string, colorSpace: string, params: any[], filePath: string) => ({
         expandedSource: '// dctl info', workingColorSpace: colorSpace, params, filePath,
     }),
 };
 
 const fsStub = {
+    '@global': true,
     readFileSync: (_path: string, encoding?: string) => {
         if (encoding === 'utf-8') return '// DCTL source';
         return Buffer.from([0x76, 0x2f, 0x31, 0x01]);
@@ -298,6 +303,7 @@ const fsStub = {
 
 const loggerStub = {
     '@noCallThru': true,
+    '@global': true,
     initLog: () => {},
     writeLog: (msg: string) => { spy.logMessages.push(msg); },
 };
