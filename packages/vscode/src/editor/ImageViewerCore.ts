@@ -14,8 +14,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { initOCIO, OCIOProcessor } from '@dctl-workbench/core';
-import { buildIntegratedShader } from '../shader';
+import { initOCIO, OCIOProcessor, setWasmDirectory } from '@dctl-workbench/core';
+import { buildWgslShader, buildIntegratedShader } from '../shader';
 import { preprocessDctlSource } from '../dctl/preprocessor';
 import { createDctlInfo, type DctlParam, type DctlColorValue, type DctlShaderInfo } from '../dctl/types';
 import type { DctlState, OcioState } from './viewer-types';
@@ -560,6 +560,172 @@ export class ImageViewerCore {
             const message = error instanceof Error ? error.message : String(error);
             writeLog(`Shader rebuild error: ${message}`);
         }
+    }
+
+    // =========================================================================
+    // Display transform (S7)
+    // =========================================================================
+
+    /**
+     * Update the OCIO display transform for a panel.
+     * If DCTL is active, rebuilds the integrated shader; otherwise builds OCIO-only.
+     */
+    public async updateDisplayTransform(
+        panel: vscode.WebviewPanel,
+        source: string,
+        display: string,
+        view: string
+    ): Promise<void> {
+        // Store OCIO state per panel for DCTL shader rebuilding
+        this.ocioStates.set(panel, { source, display, view });
+
+        // Check if DCTL is active - if so, rebuild with DCTL included
+        const dctlState = this.dctlStates.get(panel);
+        if (dctlState && dctlState.enabled && dctlState.filePath) {
+            writeLog(`Display transform with DCTL active, rebuilding integrated shader`);
+            await this.rebuildShaderWithDctl(panel);
+            return;
+        }
+
+        // No DCTL active - build OCIO-only shader
+        try {
+            await initOCIO();
+            const processor = new OCIOProcessor();
+            processor.init();
+            processor.createDisplayTransform(source, display, view);
+            processor.setupGpuProcessor();
+            const shaderInfo = processor.extractGpuShaderInfo();
+            processor.dispose();
+
+            // Convert GLSL to WGSL for WebGPU
+            const extensionPath = this.context.extensionPath;
+            const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
+            if (!wgslResult.success) {
+                writeLog(`WGSL conversion failed: ${wgslResult.error}`);
+            }
+
+            panel.webview.postMessage({
+                type: 'updateShader',
+                // GLSL shader info (for WebGL fallback)
+                shaderInfo: {
+                    shaderText: shaderInfo.shaderText,
+                    textures: shaderInfo.textures,
+                    textures3D: shaderInfo.textures3D,
+                    uniforms: shaderInfo.uniforms,
+                },
+                // WGSL shader info (for WebGPU)
+                wgslShaderInfo: wgslResult.success ? {
+                    wgslCode: wgslResult.wgslCode,
+                    computeWgslCode: wgslResult.computeWgslCode,
+                    textures: shaderInfo.textures,
+                    textures3D: shaderInfo.textures3D,
+                    bindings: wgslResult.bindings,
+                } : null,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            panel.webview.postMessage({
+                type: 'error',
+                message: `Failed to update display transform: ${message}`,
+            });
+        }
+    }
+
+    /**
+     * Load decoded image data into a panel: OCIO init, shader build, webview postMessage.
+     * Called from ExrEditorProvider after EXR-specific decoding is done.
+     */
+    public async loadImageData(
+        panel: vscode.WebviewPanel,
+        imageData: {
+            width: number;
+            height: number;
+            channels: number;
+            buffer: ArrayBuffer;
+            byteOffset: number;
+            byteLength: number;
+            colorSpace: string;
+            colorSpaceDetected: boolean;
+            compression: string;
+            bitDepth: string;
+        },
+        wasmDir: string
+    ): Promise<void> {
+        // Store image dimensions in DCTL state for shader built-in parameters
+        const dctlState = this.dctlStates.get(panel);
+        if (dctlState) {
+            dctlState.imageWidth = imageData.width;
+            dctlState.imageHeight = imageData.height;
+        }
+
+        // Initialize OCIO and get available displays/views/color spaces
+        setWasmDirectory(wasmDir);
+        await initOCIO();
+        const processor = new OCIOProcessor();
+        processor.init();
+
+        const colorSpaces = processor.getColorSpaces();
+        const displays = processor.getDisplays();
+        const displayViewMap: Record<string, string[]> = {};
+        for (const display of displays) {
+            displayViewMap[display] = processor.getViews(display);
+        }
+
+        // Get GPU shader for default transform (source -> sRGB display)
+        const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
+        const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
+
+        // Store OCIO state per panel for DCTL shader rebuilding
+        this.ocioStates.set(panel, { source: imageData.colorSpace, display: defaultDisplay, view: defaultView });
+
+        processor.createDisplayTransform(imageData.colorSpace, defaultDisplay, defaultView);
+        processor.setupGpuProcessor();
+        const shaderInfo = processor.extractGpuShaderInfo();
+        processor.dispose();
+
+        // Convert GLSL to WGSL for WebGPU
+        const extensionPath = this.context.extensionPath;
+        const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
+        if (!wgslResult.success) {
+            writeLog(`WGSL conversion failed: ${wgslResult.error}`);
+        }
+
+        // Send image data to webview using ArrayBuffer for efficient transfer
+        panel.webview.postMessage({
+            type: 'loadImage',
+            data: {
+                width: imageData.width,
+                height: imageData.height,
+                channels: imageData.channels,
+                buffer: imageData.buffer,
+                byteOffset: imageData.byteOffset,
+                byteLength: imageData.byteLength,
+                colorSpace: imageData.colorSpace,
+                colorSpaceDetected: imageData.colorSpaceDetected,
+                compression: imageData.compression,
+                bitDepth: imageData.bitDepth,
+                colorSpaces,
+                displays,
+                defaultDisplay,
+                defaultView,
+                displayViewMap,
+                // GLSL shader info (for WebGL fallback)
+                shaderInfo: {
+                    shaderText: shaderInfo.shaderText,
+                    textures: shaderInfo.textures,
+                    textures3D: shaderInfo.textures3D,
+                    uniforms: shaderInfo.uniforms,
+                },
+                // WGSL shader info (for WebGPU)
+                wgslShaderInfo: wgslResult.success ? {
+                    wgslCode: wgslResult.wgslCode,
+                    computeWgslCode: wgslResult.computeWgslCode,
+                    textures: shaderInfo.textures,
+                    textures3D: shaderInfo.textures3D,
+                    bindings: wgslResult.bindings,
+                } : null,
+            },
+        });
     }
 
     // =========================================================================

@@ -10,8 +10,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { performance } from 'perf_hooks';
 import { EXRReader, EXRWriter, Compression, PixelType, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory, isOpenEXRInitialized } from '../exr';
-import { initOCIO, OCIOProcessor, setWasmDirectory, DctlRuntime } from '@dctl-workbench/core';
-import { buildWgslShader, buildDctlExportShader } from '../shader';
+import { DctlRuntime } from '@dctl-workbench/core';
+import { buildDctlExportShader } from '../shader';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
 
@@ -468,8 +468,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                     break;
                 case 'setDisplayTransform':
                     writeLog(`Display transform: ${message.source} -> ${message.display} / ${message.view}`);
-                    await this.updateDisplayTransform(
-                        document,
+                    await this.core.updateDisplayTransform(
                         webviewPanel,
                         message.source,
                         message.display,
@@ -546,7 +545,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             perf.lap('Read EXR file from disk');
 
             // Initialize OpenEXR WASM (cached for subsequent loads)
-            // Use extensionPath for reliable path resolution (works both in dev and bundled .vsix)
             const possibleWasmDirs = [
                 path.join(this.context.extensionPath, 'out', 'wasm'),    // Compiled output
                 path.join(this.context.extensionPath, 'wasm'),           // Development
@@ -569,13 +567,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             reader.dispose();
             perf.lap(`Parse EXR (${imageData.width}x${imageData.height})`);
 
-            // Store image dimensions in DCTL state for shader built-in parameters
-            const dctlState = this.core.getDctlState(panel);
-            if (dctlState) {
-                dctlState.imageWidth = imageData.width;
-                dctlState.imageHeight = imageData.height;
-            }
-
             // Identify color space from chromaticities
             // Default to sRGB if no chromaticities metadata
             let colorSpace = 'sRGB - Texture';
@@ -583,7 +574,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             if (imageData.chromaticities) {
                 const identified = identifyColorSpace(imageData.chromaticities);
                 if (identified !== 'unknown') {
-                    // Map internal names to OCIO color space names
                     const ocioNameMap: Record<string, string> = {
                         'ACES2065-1': 'ACES2065-1',
                         'ACEScg': 'ACEScg',
@@ -597,81 +587,22 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                     colorSpaceDetected = true;
                 }
             }
+            perf.lap('Identify color space');
 
-            // Initialize OCIO and get available displays/views/color spaces
-            setWasmDirectory(wasmDir);
-            await initOCIO();
-            const processor = new OCIOProcessor();
-            processor.init();
-
-            const colorSpaces = processor.getColorSpaces();
-            const displays = processor.getDisplays();
-            const displayViewMap: Record<string, string[]> = {};
-            for (const display of displays) {
-                displayViewMap[display] = processor.getViews(display);
-            }
-            perf.lap('Initialize OCIO');
-
-            // Get GPU shader for default transform (source -> sRGB display)
-            const defaultDisplay = displays.includes('sRGB') ? 'sRGB' : displays[0];
-            const defaultView = displayViewMap[defaultDisplay]?.[0] || '';
-
-            // Store OCIO state per panel for DCTL shader rebuilding
-            this.core.setOcioState(panel, { source: colorSpace, display: defaultDisplay, view: defaultView });
-
-            processor.createDisplayTransform(colorSpace, defaultDisplay, defaultView);
-            processor.setupGpuProcessor();
-            const shaderInfo = processor.extractGpuShaderInfo();
-            processor.dispose();
-            perf.lap('Generate OCIO GPU shader');
-
-            // Convert GLSL to WGSL for WebGPU
-            const extensionPath = this.context.extensionPath;
-            const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
-            if (!wgslResult.success) {
-                writeLog(`WGSL conversion failed: ${wgslResult.error}`);
-            }
-            perf.lap('Convert GLSL to WGSL');
-
-            // Send image data to webview using ArrayBuffer for efficient transfer
-            // Structured clone algorithm handles ArrayBuffers without JSON serialization
-            webview.postMessage({
-                type: 'loadImage',
-                data: {
-                    width: imageData.width,
-                    height: imageData.height,
-                    channels: imageData.channels.length,
-                    // Pass ArrayBuffer directly - avoid JSON serialization
-                    buffer: imageData.pixels.buffer,
-                    byteOffset: imageData.pixels.byteOffset,
-                    byteLength: imageData.pixels.byteLength,
-                    colorSpace,
-                    colorSpaceDetected,
-                    compression: imageData.compressionName,
-                    bitDepth: imageData.pixelTypeName,
-                    colorSpaces,
-                    displays,
-                    defaultDisplay,
-                    defaultView,
-                    displayViewMap,
-                    // GLSL shader info (for WebGL fallback)
-                    shaderInfo: {
-                        shaderText: shaderInfo.shaderText,
-                        textures: shaderInfo.textures,
-                        textures3D: shaderInfo.textures3D,
-                        uniforms: shaderInfo.uniforms,
-                    },
-                    // WGSL shader info (for WebGPU)
-                    wgslShaderInfo: wgslResult.success ? {
-                        wgslCode: wgslResult.wgslCode,
-                        computeWgslCode: wgslResult.computeWgslCode,  // For compute pipeline
-                        textures: shaderInfo.textures,
-                        textures3D: shaderInfo.textures3D,
-                        bindings: wgslResult.bindings,
-                    } : null,
-                },
-            });
-            perf.lap('Post message to webview');
+            // Delegate OCIO init, shader build, and webview postMessage to core
+            await this.core.loadImageData(panel, {
+                width: imageData.width,
+                height: imageData.height,
+                channels: imageData.channels.length,
+                buffer: imageData.pixels.buffer as ArrayBuffer,
+                byteOffset: imageData.pixels.byteOffset,
+                byteLength: imageData.pixels.byteLength,
+                colorSpace,
+                colorSpaceDetected,
+                compression: imageData.compressionName || 'unknown',
+                bitDepth: imageData.pixelTypeName || 'unknown',
+            }, wasmDir);
+            perf.lap('OCIO + shader + postMessage');
             perf.end();
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -680,68 +611,6 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             webview.postMessage({
                 type: 'error',
                 message: `Failed to load EXR: ${message}`,
-            });
-        }
-    }
-
-    private async updateDisplayTransform(
-        _document: ExrDocument,
-        panel: vscode.WebviewPanel,
-        source: string,
-        display: string,
-        view: string
-    ): Promise<void> {
-        // Store OCIO state per panel for DCTL shader rebuilding
-        this.core.setOcioState(panel, { source, display, view });
-
-        // Check if DCTL is active - if so, rebuild with DCTL included
-        const dctlState = this.core.getDctlState(panel);
-        if (dctlState && dctlState.enabled && dctlState.filePath) {
-            writeLog(`Display transform with DCTL active, rebuilding integrated shader`);
-            await this.core.rebuildShaderWithDctl(panel);
-            return;
-        }
-
-        // No DCTL active - build OCIO-only shader
-        try {
-            await initOCIO();
-            const processor = new OCIOProcessor();
-            processor.init();
-            processor.createDisplayTransform(source, display, view);
-            processor.setupGpuProcessor();
-            const shaderInfo = processor.extractGpuShaderInfo();
-            processor.dispose();
-
-            // Convert GLSL to WGSL for WebGPU
-            const extensionPath = this.context.extensionPath;
-            const wgslResult = await buildWgslShader(extensionPath, shaderInfo);
-            if (!wgslResult.success) {
-                writeLog(`WGSL conversion failed: ${wgslResult.error}`);
-            }
-
-            panel.webview.postMessage({
-                type: 'updateShader',
-                // GLSL shader info (for WebGL fallback)
-                shaderInfo: {
-                    shaderText: shaderInfo.shaderText,
-                    textures: shaderInfo.textures,
-                    textures3D: shaderInfo.textures3D,
-                    uniforms: shaderInfo.uniforms,
-                },
-                // WGSL shader info (for WebGPU)
-                wgslShaderInfo: wgslResult.success ? {
-                    wgslCode: wgslResult.wgslCode,
-                    computeWgslCode: wgslResult.computeWgslCode,  // For compute pipeline
-                    textures: shaderInfo.textures,
-                    textures3D: shaderInfo.textures3D,
-                    bindings: wgslResult.bindings,
-                } : null,
-            });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            panel.webview.postMessage({
-                type: 'error',
-                message: `Failed to update display transform: ${message}`,
             });
         }
     }
