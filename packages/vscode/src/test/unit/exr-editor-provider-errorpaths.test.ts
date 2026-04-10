@@ -498,7 +498,6 @@ describe('ExrEditorProvider — error paths', () => {
         it('toggleDctl after dispose does not crash', async () => {
             const provider = new ExrEditorProvider(createMockContext());
             const { panel } = await openReadyPanel(provider, '/tmp/test.exr');
-            const countBefore = panel.messages.length;
 
             // Manually delete dctlState to simulate missing state
             // (This happens internally when the panel is disposed)
@@ -521,7 +520,6 @@ describe('ExrEditorProvider — error paths', () => {
         it('unknown requestId is ignored without crashing', async () => {
             const provider = new ExrEditorProvider(createMockContext());
             const { panel } = await openReadyPanel(provider, '/tmp/test.exr');
-            const countBefore = panel.messages.length;
 
             panel.simulateReceiveMessage({
                 type: 'exportBufferReady',

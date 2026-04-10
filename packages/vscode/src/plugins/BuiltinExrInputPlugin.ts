@@ -9,7 +9,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { EXRReader, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory, isOpenEXRInitialized } from '../exr';
+import { EXRReader, identifyColorSpace, initOpenEXR, setOpenEXRWasmDirectory } from '../exr';
 import type { InputPlugin, DecodedImage, ImageMetadata, ProcessOptions, Chromaticities } from './types';
 
 export class BuiltinExrInputPlugin implements InputPlugin {

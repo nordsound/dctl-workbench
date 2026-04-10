@@ -468,7 +468,6 @@ describe('ExrEditorProvider — export pipeline', () => {
 
             // Manually set filePath on state to simulate partial DCTL load
             // without dctlShaderInfos being populated
-            const activePanels = provider.getActivePanels();
             // Use toggleDctl to set enabled without actually loading shader info
             panel.simulateReceiveMessage({ type: 'toggleDctl', enabled: true });
             await flushAsync();
