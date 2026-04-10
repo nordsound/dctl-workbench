@@ -47,7 +47,16 @@ export class ImageViewerCore {
      * Attach a panel: register state, set up HTML, wire dispose + view state.
      * Called from ExrEditorProvider.resolveCustomEditor.
      */
-    public attach(panel: vscode.WebviewPanel, documentPath: string): void {
+    public attach(
+        panel: vscode.WebviewPanel,
+        documentPath: string,
+        handlers?: {
+            /** Called when webview sends 'ready'. Provider loads image data here. */
+            onReady?: (panel: vscode.WebviewPanel) => Promise<void>;
+            /** Called when webview requests EXR export. Provider writes the file. */
+            onExport?: (panel: vscode.WebviewPanel) => Promise<void>;
+        },
+    ): void {
         // Configure webview
         panel.webview.options = {
             enableScripts: true,
@@ -116,6 +125,67 @@ export class ImageViewerCore {
             if (subs) {
                 subs.forEach(s => s.dispose());
                 this.editorChangeSubscriptions.delete(panel);
+            }
+        });
+
+        // Handle messages from webview
+        panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.type) {
+                case 'ready':
+                    writeLog('Webview ready');
+                    if (handlers?.onReady) await handlers.onReady(panel);
+                    this.sendOpenDctlFiles(panel);
+                    break;
+                case 'setDisplayTransform':
+                    writeLog(`Display transform: ${message.source} -> ${message.display} / ${message.view}`);
+                    await this.updateDisplayTransform(panel, message.source, message.display, message.view);
+                    break;
+                case 'selectDctlFile':
+                    await this.handleSelectDctlFile(panel);
+                    break;
+                case 'loadDctlFromPath':
+                    if (message.path) await this.loadDctlFile(panel, message.path);
+                    break;
+                case 'toggleDctl':
+                    await this.handleToggleDctl(panel, message.enabled);
+                    break;
+                case 'toggleRgc':
+                    await this.handleToggleRgc(panel, message.enabled, message.peakLuminance);
+                    break;
+                case 'updateRgcSettings':
+                    await this.handleUpdateRgcSettings(panel, message.peakLuminance);
+                    break;
+                case 'changeDctlColorSpace':
+                    await this.handleChangeDctlColorSpace(panel, message.colorSpace);
+                    break;
+                case 'updateDctlParam':
+                    await this.handleUpdateDctlParam(panel, message.name, message.value);
+                    break;
+                case 'log':
+                    writeLog(`[WEBVIEW] ${message.message}`);
+                    break;
+                case 'error':
+                    writeLog(`[ERROR] ${message.message}`);
+                    vscode.window.showErrorMessage(`EXR Viewer: ${message.message}`);
+                    break;
+                case 'exportBufferReady':
+                    this.handleExportBufferReady(message);
+                    break;
+                case 'exportExr':
+                    writeLog('Export EXR requested from webview');
+                    if (handlers?.onExport) {
+                        handlers.onExport(panel).catch((error) => {
+                            const errMsg = error instanceof Error ? error.message : String(error);
+                            vscode.window.showErrorMessage(`Export failed: ${errMsg}`);
+                        });
+                    }
+                    break;
+                case 'shaderBuildResult':
+                    this.handleShaderBuildResult(panel, message.hasDctlSupport, message.error);
+                    break;
+                case 'rgcPixelVerification':
+                    this.handleRgcPixelVerification(message.isBlack, message.pixels, message.hasFullRgc);
+                    break;
             }
         });
     }
