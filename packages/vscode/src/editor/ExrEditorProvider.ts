@@ -77,20 +77,16 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         await vscode.commands.executeCommand('vscode.openWith', uri, ExrEditorProvider.viewType);
 
         if (dctlPath) {
-            // Queue DCTL load — panel may not be tracked yet, poll briefly
-            const loadDctl = async () => {
-                for (let i = 0; i < 20; i++) {
-                    const panels = this.core.getActivePanels();
-                    const target = panels.find(p => p.documentPath === exrPath);
-                    if (target) {
-                        await this.core.loadDctlFile(target.panel, dctlPath);
-                        return;
-                    }
-                    await new Promise(r => setTimeout(r, 100));
+            // Panel may not be tracked yet — poll until it appears
+            for (let i = 0; i < 20; i++) {
+                const target = this.core.getActivePanels().find(p => p.documentPath === exrPath);
+                if (target) {
+                    await this.core.loadDctlFile(target.panel, dctlPath);
+                    return;
                 }
-                writeLog(`openExrWithDctl: panel for ${exrPath} not found after 2s`);
-            };
-            loadDctl();
+                await new Promise(r => setTimeout(r, 100));
+            }
+            writeLog(`openExrWithDctl: panel for ${exrPath} not found after 2s`);
         }
     }
 
