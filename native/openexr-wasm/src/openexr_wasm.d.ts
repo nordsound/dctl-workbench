@@ -64,8 +64,14 @@ export interface OpenEXRModule extends EmscriptenModule {
     // Memory
     _malloc(size: number): number;
     _free(ptr: number): void;
+    HEAP8: Int8Array;
     HEAPU8: Uint8Array;
+    HEAP16: Int16Array;
+    HEAPU16: Uint16Array;
+    HEAP32: Int32Array;
+    HEAPU32: Uint32Array;
     HEAPF32: Float32Array;
+    HEAPF64: Float64Array;
 
     // Initialization
     _exr_wasm_init(): number;

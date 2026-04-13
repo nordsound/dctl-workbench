@@ -119,7 +119,7 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=1048576
 
         "-sEXPORTED_FUNCTIONS=[${EXPORTED_FUNCTIONS_STR}]"
-        -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,getValue,setValue,UTF8ToString,stringToUTF8,HEAPU8,HEAPF32
+        -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,getValue,setValue,UTF8ToString,stringToUTF8,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64
 
         -O3
         --closure 1
