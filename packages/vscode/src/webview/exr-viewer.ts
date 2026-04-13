@@ -9,6 +9,7 @@ import { WebGPURenderer } from './webgpu-renderer';
 import { createLogger, calculateFitZoom, type VSCodeAPI } from './shared';
 import { createHDRManager, type HDRManager } from './shared';
 import { PanController, type PanState } from './shared/pan-controller';
+import { calculateZoomScrollAdjustment } from './shared/zoom-math';
 import {
     createDctlControlsManager,
     rgbToHex,
@@ -1219,13 +1220,36 @@ function onWindowResize(): void {
 
 function onCanvasWheel(event: WheelEvent): void {
     event.preventDefault();
+    if (!currentImage) return;
 
     // Switch to manual mode when user scrolls to zoom
     zoomMode = 'manual';
 
+    const oldZoom = zoom;
     const delta = event.deltaY > 0 ? 0.9 : 1.1;
-    zoom = Math.max(0.1, Math.min(10, zoom * delta));
-    updateZoom();
+    const newZoom = Math.max(0.1, Math.min(10, oldZoom * delta));
+    if (newZoom === oldZoom) return;
+
+    // Capture canvas position BEFORE zoom so we can anchor the cursor
+    // to the image point it was hovering.
+    const canvasRectBefore = canvas.getBoundingClientRect();
+
+    zoom = newZoom;
+    updateZoom(); // resizes canvas + updates pan controller
+
+    // After layout settles, adjust scroll so the same image point stays
+    // under the cursor (browser clamps at the edges — best-effort).
+    const canvasRectAfter = canvas.getBoundingClientRect();
+    const adjust = calculateZoomScrollAdjustment({
+        oldZoom,
+        newZoom,
+        cursorClientX: event.clientX,
+        cursorClientY: event.clientY,
+        canvasRectBefore,
+        canvasRectAfter,
+    });
+    canvasContainer.scrollLeft += adjust.deltaX;
+    canvasContainer.scrollTop += adjust.deltaY;
 }
 
 // ============================================

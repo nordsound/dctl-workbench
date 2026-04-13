@@ -12,3 +12,4 @@ export * from './gpu-features';
 export * from './gpu-subgroups';
 export * from './metadata-display';
 export * from './pan-controller';
+export * from './zoom-math';
