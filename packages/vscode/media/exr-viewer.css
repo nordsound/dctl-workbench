@@ -123,9 +123,19 @@ html, body {
     flex: 1;
     overflow: auto;
     background-color: #181818;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    /*
+     * NOTE: Do NOT use flex centering here (align-items or justify-content
+     * set to center). A scrollable container with flex centering makes the
+     * start-side (left/top) overflow unreachable — after zoom-in, users
+     * cannot pan left or up. See T005. Centering is done on the canvas
+     * child via margin auto instead.
+     */
+    text-align: center;
+}
+
+#canvas-container > canvas {
+    display: block;
+    margin: auto;
 }
 
 #canvas-container.can-pan {
