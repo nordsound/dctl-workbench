@@ -123,9 +123,21 @@ html, body {
     flex: 1;
     overflow: auto;
     background-color: #181818;
+    /*
+     * NOTE: display:flex is required so that the canvas child's `margin:auto`
+     * centers it in BOTH axes when it fits, and collapses to 0 on each axis
+     * when the canvas overflows (pinning to scroll origin with a symmetric
+     * scroll range).
+     *
+     * Do NOT add `align-items` or `justify-content` set to `center` here —
+     * they make the start-side overflow unreachable (after zoom-in the
+     * user cannot pan left or up). See T005.
+     */
     display: flex;
-    align-items: center;
-    justify-content: center;
+}
+
+#canvas-container > canvas {
+    margin: auto;
 }
 
 #canvas-container.can-pan {
