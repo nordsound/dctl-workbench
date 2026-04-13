@@ -19,7 +19,6 @@ export class BuiltinExrInputPlugin implements InputPlugin {
     readonly supportedExtensions = ['exr'] as const;
 
     private extensionPath: string;
-    private exrModule: any = null;
     private parsedData: {
         width: number;
         height: number;
@@ -35,9 +34,8 @@ export class BuiltinExrInputPlugin implements InputPlugin {
     }
 
     async init(): Promise<void> {
-        const wasmDir = findWasmDir(this.extensionPath);
-        setOpenEXRWasmDirectory(wasmDir);
-        this.exrModule = await initOpenEXR();
+        // Set the WASM directory once — initOpenEXR() caches with validation internally
+        setOpenEXRWasmDirectory(findWasmDir(this.extensionPath));
     }
 
     canHandle(extension: string): boolean {
@@ -47,13 +45,18 @@ export class BuiltinExrInputPlugin implements InputPlugin {
     async load(data: Uint8Array): Promise<void> {
         this.parsedData = null; // Release previous data before new allocation
 
-        if (!this.exrModule) {
-            await this.init();
-        }
+        // Always resolve the module fresh — initOpenEXR() has internal caching with
+        // HEAP-view validation. Caching the module reference at the plugin level
+        // would hold a stale instance across export operations (initOpenEXR(true)).
+        setOpenEXRWasmDirectory(findWasmDir(this.extensionPath));
+        const exrModule = await initOpenEXR();
 
-        const reader = new EXRReader(this.exrModule);
+        const reader = new EXRReader(exrModule);
         try {
             const imageData = reader.read(data);
+            if (!imageData.pixels || !(imageData.pixels instanceof Float32Array)) {
+                throw new Error(`EXRReader returned invalid pixels: ${typeof imageData.pixels}`);
+            }
             this.parsedData = {
                 width: imageData.width,
                 height: imageData.height,
@@ -75,6 +78,15 @@ export class BuiltinExrInputPlugin implements InputPlugin {
 
         const { width, height, channels, pixels } = this.parsedData;
         const srcChannels = channels.length;
+
+        // Sanity check: pixels buffer must match declared dimensions
+        const expectedLength = width * height * srcChannels;
+        if (pixels.length !== expectedLength) {
+            throw new Error(
+                `Pixel buffer size mismatch: expected ${expectedLength} ` +
+                `(${width}x${height}x${srcChannels}), got ${pixels.length}`
+            );
+        }
 
         // Pad to RGBA if needed (plugin API requires 4 channels for rgba32float)
         let rgbaPixels: Float32Array;
@@ -143,6 +155,5 @@ export class BuiltinExrInputPlugin implements InputPlugin {
 
     dispose(): void {
         this.parsedData = null;
-        this.exrModule = null;
     }
 }
