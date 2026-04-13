@@ -32,6 +32,15 @@ describe('exr-viewer.css', () => {
             assert.match(block, /overflow:\s*auto/);
         });
 
+        // margin:auto on a child centers in both axes ONLY inside a flex
+        // container. Without display:flex the canvas would center
+        // horizontally only, leaving its top edge pinned to the container
+        // top when the image is smaller than the viewport (T005).
+        it('must have display: flex so margin:auto centers both axes', () => {
+            const block = getCanvasContainerBlock();
+            assert.match(block, /display:\s*flex/);
+        });
+
         // T005: flex centering + scrollable container causes the start-side
         // overflow (left/top) to be unreachable. Panning left/up stops working
         // after zoom-in because the scroll position is clamped to 0 while the
