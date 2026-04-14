@@ -11,7 +11,6 @@
 
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { resolveFixture } from '@dctl-workbench/core/out/test-paths.js';
 import { BuiltinExrInputPlugin } from '../../plugins/BuiltinExrInputPlugin';
