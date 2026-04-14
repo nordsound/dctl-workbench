@@ -708,6 +708,7 @@ export class ImageViewerCore {
             buffer: ArrayBuffer;
             byteOffset: number;
             byteLength: number;
+            pixelFormat?: 'rgba32float' | 'rgba16unorm';
             colorSpace: string;
             colorSpaceDetected: boolean;
             compression: string;
@@ -747,6 +748,7 @@ export class ImageViewerCore {
                 buffer: imageData.buffer,
                 byteOffset: imageData.byteOffset,
                 byteLength: imageData.byteLength,
+                pixelFormat: imageData.pixelFormat,
                 colorSpace: imageData.colorSpace,
                 colorSpaceDetected: imageData.colorSpaceDetected,
                 compression: imageData.compression,
