@@ -445,6 +445,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Keyboard shortcuts for debugging/testing
     document.addEventListener('keydown', onKeyDown);
 
+    // Notify extension of renderer mode (lets the host pick an output
+    // format for RAW / large images that can benefit from rgba16unorm).
+    vscode.postMessage({ type: 'rendererInitialized', mode: rendererMode });
+
+    // Show a warning banner when we had to fall back to WebGL2 so users
+    // understand why loading is slower / uses more memory.
+    if (rendererMode === 'webgl2') {
+        showWarningBanner(
+            'WebGPU is unavailable. Falling back to WebGL2 (slower, higher memory usage). ' +
+            'Restart VS Code if this is unexpected.'
+        );
+    }
+
     // Notify extension we're ready
     vscode.postMessage({ type: 'ready' });
 });
@@ -1615,6 +1628,31 @@ function showError(message: string): void {
         container.innerHTML = `<div class="error-message">${message}</div>`;
     }
     console.error('EXR Viewer error:', message);
+}
+
+/**
+ * Display a non-blocking warning banner at the top of the viewer.
+ * Used for renderer-fallback notifications (see A4).
+ */
+function showWarningBanner(message: string): void {
+    // Dedup: avoid stacking if called multiple times
+    if (document.getElementById('warning-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'warning-banner';
+    banner.className = 'warning-banner';
+    banner.setAttribute('role', 'status');
+    banner.textContent = message;
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'warning-banner-dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss warning');
+    dismiss.textContent = '×';
+    dismiss.addEventListener('click', () => banner.remove());
+    banner.appendChild(dismiss);
+
+    document.body.prepend(banner);
+    log(`[banner] ${message}`);
 }
 
 // ============================================

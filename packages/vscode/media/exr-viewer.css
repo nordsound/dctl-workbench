@@ -368,6 +368,35 @@ html, body {
     padding: 20px;
 }
 
+/* Non-blocking warning banner (renderer fallback, etc.) */
+.warning-banner {
+    position: relative;
+    padding: 8px 40px 8px 12px;
+    background-color: var(--vscode-editorWarning-background, #5a3e00);
+    color: var(--vscode-editorWarning-foreground, #ffcc00);
+    border-bottom: 1px solid var(--vscode-editorWarning-border, #8a6d00);
+    font-size: 12px;
+    line-height: 1.4;
+    z-index: 100;
+}
+
+.warning-banner-dismiss {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+}
+
+.warning-banner-dismiss:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
 /* =============================================================================
    DCTL Panel Styles
    ============================================================================= */
