@@ -6,6 +6,7 @@
 
 import type { OpenEXRModule } from '../../../../wasm/openexr_wasm';
 import type { Chromaticities } from '../plugins/types';
+import { useWasmMemorySync } from '@dctl-workbench/core';
 
 /** EXR Compression types (matches OpenEXR enum) */
 export const enum EXRCompression {
@@ -95,108 +96,9 @@ export interface EXRReaderOptions {
 export class EXRReader {
     private module: OpenEXRModule;
     private contextId: number = -1;
-    private heapU8: Uint8Array | null = null;
-    private heapF32: Float32Array | null = null;
 
     constructor(module: OpenEXRModule) {
         this.module = module;
-        this.initHeapViews();
-    }
-
-    /**
-     * Initialize heap views, trying multiple access methods
-     */
-    private initHeapViews(): void {
-        const mod = this.module as any;
-
-        // Try direct HEAP properties first
-        if (mod.HEAPU8 instanceof Uint8Array) {
-            this.heapU8 = mod.HEAPU8;
-        }
-        if (mod.HEAPF32 instanceof Float32Array) {
-            this.heapF32 = mod.HEAPF32;
-        }
-
-        // If not available, try to get from wasmMemory or asm.memory
-        if (!this.heapU8 || !this.heapF32) {
-            let buffer: ArrayBuffer | null = null;
-
-            if (mod.wasmMemory?.buffer) {
-                buffer = mod.wasmMemory.buffer;
-            } else if (mod.asm?.memory?.buffer) {
-                buffer = mod.asm.memory.buffer;
-            } else if (mod.buffer) {
-                buffer = mod.buffer;
-            }
-
-            if (buffer) {
-                if (!this.heapU8) {
-                    this.heapU8 = new Uint8Array(buffer);
-                }
-                if (!this.heapF32) {
-                    this.heapF32 = new Float32Array(buffer);
-                }
-            }
-        }
-    }
-
-    /**
-     * Get HEAPU8 view, refreshing if needed
-     */
-    private getHeapU8(): Uint8Array {
-        if (!this.heapU8) {
-            this.initHeapViews();
-        }
-        if (!this.heapU8) {
-            throw new Error('Cannot access WASM HEAPU8 memory');
-        }
-        return this.heapU8;
-    }
-
-    /**
-     * Get HEAPF32 view, refreshing if needed
-     */
-    private getHeapF32(): Float32Array {
-        if (!this.heapF32) {
-            this.initHeapViews();
-        }
-        if (!this.heapF32) {
-            throw new Error('Cannot access WASM HEAPF32 memory');
-        }
-        return this.heapF32;
-    }
-
-    /**
-     * Copy data to WASM memory using setValue as fallback
-     */
-    private copyToWasm(data: Uint8Array, ptr: number): void {
-        try {
-            const heap = this.getHeapU8();
-            heap.set(data, ptr);
-        } catch {
-            // Fallback to setValue (slower but always works)
-            for (let i = 0; i < data.length; i++) {
-                this.module.setValue(ptr + i, data[i], 'i8');
-            }
-        }
-    }
-
-    /**
-     * Read float array from WASM memory using getValue as fallback
-     */
-    private readFloatsFromWasm(ptr: number, count: number): Float32Array {
-        const result = new Float32Array(count);
-        try {
-            const heap = this.getHeapF32();
-            const offset = ptr / 4;
-            result.set(heap.subarray(offset, offset + count));
-        } catch {
-            // Fallback to getValue (slower but always works)
-            for (let i = 0; i < count; i++) {
-                result[i] = this.module.getValue(ptr + i * 4, 'float');
-            }
-        }
-        return result;
     }
 
     /**
@@ -205,18 +107,15 @@ export class EXRReader {
     read(data: Uint8Array, options?: EXRReaderOptions): EXRImageData {
         this.cleanup();
 
-        // Allocate memory for input data
-        const inputPtr = this.module._malloc(data.length);
-        if (!inputPtr) {
-            throw new Error('Failed to allocate memory for EXR data');
-        }
-
-        try {
-            // Copy data to WASM memory
-            this.copyToWasm(data, inputPtr);
+        return useWasmMemorySync(this.module, data.length, (inputBlock) => {
+            // Copy file bytes into the WASM heap
+            inputBlock.write(data);
 
             // Create read context
-            this.contextId = this.module._exr_wasm_create_read_context(inputPtr, data.length);
+            this.contextId = this.module._exr_wasm_create_read_context(
+                inputBlock.ptr,
+                data.length
+            );
             if (this.contextId < 0) {
                 throw this.createError('Failed to create read context');
             }
@@ -265,19 +164,17 @@ export class EXRReader {
                 compressionName,
                 pixelTypeName,
             };
-        } finally {
-            this.module._free(inputPtr);
-        }
+        });
     }
 
     /**
      * Get image dimensions
      */
     private getDimensions(): { width: number; height: number } {
-        const widthPtr = this.module._malloc(4);
-        const heightPtr = this.module._malloc(4);
-
-        try {
+        // Two i32 outputs in a single 8-byte block: [width, height]
+        return useWasmMemorySync(this.module, 8, (block) => {
+            const widthPtr = block.ptr;
+            const heightPtr = block.ptr + 4;
             const result = this.module._exr_wasm_get_dimensions(
                 this.contextId,
                 widthPtr,
@@ -286,15 +183,11 @@ export class EXRReader {
             if (result !== 0) {
                 throw this.createError('Failed to get dimensions');
             }
-
             return {
-                width: this.module.getValue(widthPtr, 'i32'),
-                height: this.module.getValue(heightPtr, 'i32'),
+                width: block.readInt32(0),
+                height: block.readInt32(4),
             };
-        } finally {
-            this.module._free(widthPtr);
-            this.module._free(heightPtr);
-        }
+        });
     }
 
     /**
@@ -333,23 +226,15 @@ export class EXRReader {
     ): Float32Array {
         const pixelCount = width * height * numChannels;
         const byteSize = pixelCount * 4; // sizeof(float)
-        const outputPtr = this.module._malloc(byteSize);
 
-        if (!outputPtr) {
-            throw new Error('Failed to allocate memory for pixel data');
-        }
-
-        try {
-            const result = this.module._exr_wasm_read_pixels(this.contextId, outputPtr);
+        return useWasmMemorySync(this.module, byteSize, (block) => {
+            const result = this.module._exr_wasm_read_pixels(this.contextId, block.ptr);
             if (result !== 0) {
                 throw this.createError('Failed to read pixels');
             }
-
-            // Copy from WASM memory
-            return this.readFloatsFromWasm(outputPtr, pixelCount);
-        } finally {
-            this.module._free(outputPtr);
-        }
+            // Defensive copy from WASM heap into a JS-owned Float32Array
+            return block.readFloat32(pixelCount);
+        });
     }
 
     /**
@@ -357,17 +242,13 @@ export class EXRReader {
      */
     private getChromaticities(): Chromaticities | undefined {
         // 8 floats: redX, redY, greenX, greenY, blueX, blueY, whiteX, whiteY
-        const chromaPtr = this.module._malloc(8 * 4);
-
-        try {
-            const result = this.module._exr_wasm_get_chromaticities(this.contextId, chromaPtr);
+        return useWasmMemorySync(this.module, 8 * 4, (block) => {
+            const result = this.module._exr_wasm_get_chromaticities(this.contextId, block.ptr);
             if (result !== 0) {
                 // Chromaticities not present
                 return undefined;
             }
-
-            const values = this.readFloatsFromWasm(chromaPtr, 8);
-
+            const values = block.readFloat32(8);
             return {
                 redX: values[0],
                 redY: values[1],
@@ -378,9 +259,7 @@ export class EXRReader {
                 whiteX: values[6],
                 whiteY: values[7],
             };
-        } finally {
-            this.module._free(chromaPtr);
-        }
+        });
     }
 
     /**
