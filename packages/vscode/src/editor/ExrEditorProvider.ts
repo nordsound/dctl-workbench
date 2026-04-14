@@ -13,7 +13,8 @@ import { EXRWriter, PixelType, initOpenEXR, setOpenEXRWasmDirectory } from '../e
 import { DctlRuntime } from '@dctl-workbench/core';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
-import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
+import { findInputPlugin } from '../plugins/registry';
+import type { InputPlugin } from '../plugins/types';
 import { findWasmDir } from './wasm-utils';
 import { initLog, writeLog } from '../shared/logger';
 
@@ -48,11 +49,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     public static readonly viewType = 'dctlWorkbench.exrEditor';
 
     private readonly core: ImageViewerCore;
-    private readonly plugin: BuiltinExrInputPlugin;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.core = new ImageViewerCore(context);
-        this.plugin = new BuiltinExrInputPlugin(context.extensionPath);
     }
 
     /**
@@ -257,6 +256,13 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         webview.postMessage({ type: 'startLoading' });
 
         try {
+            // Pick an input plugin based on the file extension
+            const ext = path.extname(document.uri.fsPath).slice(1);
+            const plugin: InputPlugin | undefined = findInputPlugin(ext);
+            if (!plugin) {
+                throw new Error(`No input plugin registered for *.${ext}`);
+            }
+
             // Read file data
             let fileData: Uint8Array;
             if (document.uri.scheme === 'file') {
@@ -266,10 +272,10 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             }
             perf.lap('Read file from disk');
 
-            // Decode via input plugin
-            await this.plugin.load(new Uint8Array(fileData));
-            const decoded = await this.plugin.getImageData();
-            const metadata = this.plugin.getMetadata();
+            // Decode via the selected plugin
+            await plugin.load(new Uint8Array(fileData));
+            const decoded = await plugin.getImageData();
+            const metadata = plugin.getMetadata();
             perf.lap(`Decode image (${decoded.width}x${decoded.height})`);
 
             const wasmDir = findWasmDir(this.context.extensionPath);

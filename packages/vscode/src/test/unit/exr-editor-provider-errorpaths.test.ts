@@ -10,7 +10,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext } from '../helpers/vscode-mocks';
+import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext, createMockExrInputPlugin } from '../helpers/vscode-mocks';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -182,6 +182,22 @@ const loggerStub = {
     writeLog: (msg: string) => { spy.logMessages.push(msg); },
 };
 
+const mockPlugin = createMockExrInputPlugin({ getData: () => exrReadFn() });
+
+const registryStub = {
+    '@noCallThru': true,
+    '@global': true,
+    findInputPlugin: (ext: string) => ext.toLowerCase() === 'exr' ? mockPlugin : undefined,
+    registerInputPlugin: () => true,
+    unregisterInputPlugin: () => true,
+    registerDemosaicPlugin: () => true,
+    unregisterDemosaicPlugin: () => true,
+    getInputPlugins: () => [mockPlugin],
+    getDemosaicPlugins: () => [],
+    disposeAllPlugins: () => {},
+    __resetRegistryForTests: () => {},
+};
+
 // ---------------------------------------------------------------------------
 // Load ExrEditorProvider with all stubs
 // ---------------------------------------------------------------------------
@@ -193,6 +209,7 @@ const { ExrEditorProvider } = proxyquire('../../editor/ExrEditorProvider', {
     '../exr': exrStub,
     '../dctl/preprocessor': preprocessorStub,
     '../dctl/types': dctlTypesStub,
+    '../plugins/registry': registryStub,
     'fs': fsStub,
     '../shared/logger': loggerStub,
 });
