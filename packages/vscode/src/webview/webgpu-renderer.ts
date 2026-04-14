@@ -66,11 +66,19 @@ interface WgslShaderInfo {
     dctlComputeShaderInfo?: DctlComputeShaderInfo;
 }
 
+type ImagePixelFormat = 'rgba32float' | 'rgba16unorm';
+
 interface ImageData {
     width: number;
     height: number;
     channels: number;
-    pixels: Float32Array;
+    pixels: Float32Array | Uint16Array;
+    /**
+     * Pixel format of the incoming buffer.
+     * - 'rgba32float' (default, EXR): each pixel is 4 × float32, normalized to [0, 1].
+     * - 'rgba16unorm' (RAW fast path): each pixel is 4 × uint16; GPU normalizes to [0, 1] on sample.
+     */
+    pixelFormat?: ImagePixelFormat;
 }
 
 // Default vertex shader (WGSL)
@@ -524,10 +532,41 @@ export class WebGPURenderer {
             this.imageTexture.destroy();
         }
 
-        // Convert to RGBA (BGR -> RGB swap, add alpha)
+        const pixelFormat: ImagePixelFormat = data.pixelFormat ?? 'rgba32float';
         const numPixels = data.width * data.height;
+
+        // Fast path: data is already 4-channel RGBA in either uint16 or float32.
+        // The plugin contract promises this for pixelFormat ∈ {rgba16unorm, rgba32float},
+        // so we can upload directly without any CPU-side conversion.
+        if (data.channels === 4) {
+            const format: GPUTextureFormat = pixelFormat === 'rgba16unorm' ? 'rgba16unorm' : 'rgba32float';
+            const bytesPerPixel = pixelFormat === 'rgba16unorm' ? 8 : 16;
+
+            this.imageTexture = this.device.createTexture({
+                size: [data.width, data.height],
+                format,
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+            this.device.queue.writeTexture(
+                { texture: this.imageTexture },
+                data.pixels,
+                { bytesPerRow: data.width * bytesPerPixel },
+                [data.width, data.height]
+            );
+            return;
+        }
+
+        // Legacy path: 3-channel (BGR from OpenEXR) or 1-channel — pad to RGBA float32.
+        // This path is exercised by EXR files routed through BuiltinExrInputPlugin
+        // when the plugin happens to hand back raw channel-count data.
+        if (pixelFormat !== 'rgba32float') {
+            console.error(
+                `[WebGPU] createImageTexture: pixelFormat='${pixelFormat}' is only supported with channels===4`
+            );
+            return;
+        }
+        const srcPixels = data.pixels as Float32Array;
         const rgbaPixels = new Float32Array(numPixels * 4);
-        const srcPixels = data.pixels;
 
         if (data.channels === 3) {
             let srcIdx = 0;
@@ -541,20 +580,8 @@ export class WebGPURenderer {
                 rgbaPixels[dstIdx++] = b;
                 rgbaPixels[dstIdx++] = 1.0;
             }
-        } else if (data.channels === 4) {
-            let srcIdx = 0;
-            let dstIdx = 0;
-            for (let i = 0; i < numPixels; i++) {
-                const b = srcPixels[srcIdx++];
-                const g = srcPixels[srcIdx++];
-                const r = srcPixels[srcIdx++];
-                const a = srcPixels[srcIdx++];
-                rgbaPixels[dstIdx++] = r;
-                rgbaPixels[dstIdx++] = g;
-                rgbaPixels[dstIdx++] = b;
-                rgbaPixels[dstIdx++] = a;
-            }
         } else {
+            // 1-channel grayscale
             let srcIdx = 0;
             let dstIdx = 0;
             for (let i = 0; i < numPixels; i++) {
@@ -566,13 +593,11 @@ export class WebGPURenderer {
             }
         }
 
-        // Create texture
         this.imageTexture = this.device.createTexture({
             size: [data.width, data.height],
             format: 'rgba32float',
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         });
-
         this.device.queue.writeTexture(
             { texture: this.imageTexture },
             rgbaPixels,

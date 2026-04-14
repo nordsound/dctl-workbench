@@ -12,7 +12,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext } from '../helpers/vscode-mocks';
+import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext, createMockExrInputPlugin } from '../helpers/vscode-mocks';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -60,8 +60,25 @@ const vscodeMock = {
     TabInputText: class { readonly uri: FakeUri; constructor(uri: FakeUri) { this.uri = uri; } },
 };
 
+const mockPlugin = createMockExrInputPlugin();
+
+const registryStub = {
+    '@noCallThru': true,
+    '@global': true,
+    findInputPlugin: (ext: string) => ext.toLowerCase() === 'exr' ? mockPlugin : undefined,
+    registerInputPlugin: () => true,
+    unregisterInputPlugin: () => true,
+    registerDemosaicPlugin: () => true,
+    unregisterDemosaicPlugin: () => true,
+    getInputPlugins: () => [mockPlugin],
+    getDemosaicPlugins: () => [],
+    disposeAllPlugins: () => {},
+    __resetRegistryForTests: () => {},
+};
+
 const { ExrEditorProvider } = proxyquire('../../editor/ExrEditorProvider', {
     'vscode': vscodeMock,
+    '../plugins/registry': registryStub,
 });
 
 // ---------------------------------------------------------------------------

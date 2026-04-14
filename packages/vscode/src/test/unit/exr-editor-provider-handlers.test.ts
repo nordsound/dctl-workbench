@@ -11,7 +11,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext } from '../helpers/vscode-mocks';
+import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext, createMockExrInputPlugin } from '../helpers/vscode-mocks';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -193,6 +193,22 @@ const loggerStub = {
     writeLog: (msg: string) => { spy.logMessages.push(msg); },
 };
 
+const mockPlugin = createMockExrInputPlugin();
+
+const registryStub = {
+    '@noCallThru': true,
+    '@global': true,
+    findInputPlugin: (ext: string) => ext.toLowerCase() === 'exr' ? mockPlugin : undefined,
+    registerInputPlugin: () => true,
+    unregisterInputPlugin: () => true,
+    registerDemosaicPlugin: () => true,
+    unregisterDemosaicPlugin: () => true,
+    getInputPlugins: () => [mockPlugin],
+    getDemosaicPlugins: () => [],
+    disposeAllPlugins: () => {},
+    __resetRegistryForTests: () => {},
+};
+
 // ---------------------------------------------------------------------------
 // Load ExrEditorProvider with all stubs injected
 // ---------------------------------------------------------------------------
@@ -204,6 +220,7 @@ const { ExrEditorProvider } = proxyquire('../../editor/ExrEditorProvider', {
     '../exr': exrStub,
     '../dctl/preprocessor': preprocessorStub,
     '../dctl/types': dctlTypesStub,
+    '../plugins/registry': registryStub,
     'fs': fsStub,
     '../shared/logger': loggerStub,
 });
@@ -574,6 +591,37 @@ describe('ExrEditorProvider — message handlers', () => {
             await flushAsync();
 
             assert.equal(spy.warningMessages.length, warningsBefore, 'no warning expected');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // rendererInitialized (A4)
+    // -----------------------------------------------------------------------
+
+    describe('rendererInitialized', () => {
+        it('stores the renderer mode reported by the webview', async () => {
+            panel.simulateReceiveMessage({ type: 'rendererInitialized', mode: 'webgpu' });
+            await flushAsync();
+            // Core exposes the mode via the public accessor
+            assert.equal((provider as any).core.getRendererMode(panel), 'webgpu');
+        });
+
+        it('defaults to webgl2 when the webview has not yet reported', async () => {
+            // Fresh panel, no rendererInitialized message sent yet
+            const freshProvider = new ExrEditorProvider(createMockContext());
+            const freshPanel = createMockWebviewPanel();
+            const uri = FakeUri.file('/tmp/x.exr');
+            const token = new vscodeMock.CancellationTokenSource().token;
+            const doc = await freshProvider.openCustomDocument(uri, {}, token);
+            await freshProvider.resolveCustomEditor(doc, freshPanel, token);
+            assert.equal((freshProvider as any).core.getRendererMode(freshPanel), 'webgl2');
+            freshPanel.dispose();
+        });
+
+        it('ignores unknown modes', async () => {
+            panel.simulateReceiveMessage({ type: 'rendererInitialized', mode: 'vulkan' });
+            await flushAsync();
+            assert.equal((provider as any).core.getRendererMode(panel), 'webgl2');
         });
     });
 });

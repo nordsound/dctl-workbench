@@ -34,6 +34,8 @@ export class ImageViewerCore {
         resolve: (data: { pixels: Float32Array; width: number; height: number }) => void;
         reject: (error: Error) => void;
     }>();
+    /** Renderer mode reported by each webview; defaults to 'webgl2' until 'rendererInitialized' arrives. */
+    private readonly rendererModes = new Map<vscode.WebviewPanel, 'webgpu' | 'webgl2'>();
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -120,6 +122,7 @@ export class ImageViewerCore {
             this.panelInfos.delete(panel);
             this.ocioStates.delete(panel);
             this.dctlShaderInfos.delete(panel);
+            this.rendererModes.delete(panel);
 
             const subs = this.editorChangeSubscriptions.get(panel);
             if (subs) {
@@ -131,6 +134,12 @@ export class ImageViewerCore {
         // Handle messages from webview
         panel.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
+                case 'rendererInitialized':
+                    if (message.mode === 'webgpu' || message.mode === 'webgl2') {
+                        this.rendererModes.set(panel, message.mode);
+                        writeLog(`Webview renderer mode: ${message.mode}`);
+                    }
+                    break;
                 case 'ready':
                     writeLog('Webview ready');
                     if (handlers?.onReady) await handlers.onReady(panel);
@@ -236,6 +245,14 @@ export class ImageViewerCore {
 
     public getPanelInfo(panel: vscode.WebviewPanel): { documentPath: string; lastActiveTime: number } | undefined {
         return this.panelInfos.get(panel);
+    }
+
+    /**
+     * Returns the renderer mode reported by the panel's webview, or 'webgl2'
+     * as a safe fallback if the webview has not yet reported.
+     */
+    public getRendererMode(panel: vscode.WebviewPanel): 'webgpu' | 'webgl2' {
+        return this.rendererModes.get(panel) ?? 'webgl2';
     }
 
     // =========================================================================
@@ -691,6 +708,7 @@ export class ImageViewerCore {
             buffer: ArrayBuffer;
             byteOffset: number;
             byteLength: number;
+            pixelFormat?: 'rgba32float' | 'rgba16unorm';
             colorSpace: string;
             colorSpaceDetected: boolean;
             compression: string;
@@ -730,6 +748,7 @@ export class ImageViewerCore {
                 buffer: imageData.buffer,
                 byteOffset: imageData.byteOffset,
                 byteLength: imageData.byteLength,
+                pixelFormat: imageData.pixelFormat,
                 colorSpace: imageData.colorSpace,
                 colorSpaceDetected: imageData.colorSpaceDetected,
                 compression: imageData.compression,
@@ -953,6 +972,7 @@ export class ImageViewerCore {
         this.panelInfos.clear();
         this.ocioStates.clear();
         this.dctlShaderInfos.clear();
+        this.rendererModes.clear();
         for (const [, pending] of this.pendingExports) {
             pending.reject(new Error('ImageViewerCore disposed'));
         }

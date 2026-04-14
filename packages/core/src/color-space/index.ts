@@ -4,6 +4,8 @@
  * Color space conversion matrices and functions.
  */
 
+export * from './xyz-to-aces';
+
 // =============================================================================
 // Color Space Matrices (WGSL format)
 // =============================================================================

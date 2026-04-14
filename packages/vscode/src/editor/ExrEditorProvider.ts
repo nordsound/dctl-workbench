@@ -13,7 +13,8 @@ import { EXRWriter, PixelType, initOpenEXR, setOpenEXRWasmDirectory } from '../e
 import { DctlRuntime } from '@dctl-workbench/core';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
-import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
+import { findInputPlugin } from '../plugins/registry';
+import type { InputPlugin } from '../plugins/types';
 import { findWasmDir } from './wasm-utils';
 import { initLog, writeLog } from '../shared/logger';
 
@@ -48,11 +49,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     public static readonly viewType = 'dctlWorkbench.exrEditor';
 
     private readonly core: ImageViewerCore;
-    private readonly plugin: BuiltinExrInputPlugin;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.core = new ImageViewerCore(context);
-        this.plugin = new BuiltinExrInputPlugin(context.extensionPath);
     }
 
     /**
@@ -257,6 +256,13 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         webview.postMessage({ type: 'startLoading' });
 
         try {
+            // Pick an input plugin based on the file extension
+            const ext = path.extname(document.uri.fsPath).slice(1);
+            const plugin: InputPlugin | undefined = findInputPlugin(ext);
+            if (!plugin) {
+                throw new Error(`No input plugin registered for *.${ext}`);
+            }
+
             // Read file data
             let fileData: Uint8Array;
             if (document.uri.scheme === 'file') {
@@ -266,11 +272,15 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             }
             perf.lap('Read file from disk');
 
-            // Decode via input plugin
-            await this.plugin.load(new Uint8Array(fileData));
-            const decoded = await this.plugin.getImageData();
-            const metadata = this.plugin.getMetadata();
-            perf.lap(`Decode image (${decoded.width}x${decoded.height})`);
+            // Decode via the selected plugin. Hint the preferred output format
+            // based on the renderer mode so plugins capable of producing
+            // rgba16unorm can skip the float32 upscale for WebGPU.
+            const rendererMode = this.core.getRendererMode(panel);
+            const outputFormat = rendererMode === 'webgpu' ? 'rgba16unorm' : 'rgba32float';
+            await plugin.load(new Uint8Array(fileData));
+            const decoded = await plugin.getImageData({ outputFormat });
+            const metadata = plugin.getMetadata();
+            perf.lap(`Decode image (${decoded.width}x${decoded.height}, ${decoded.pixelFormat})`);
 
             const wasmDir = findWasmDir(this.context.extensionPath);
 
@@ -282,6 +292,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 buffer: decoded.pixels.buffer as ArrayBuffer,
                 byteOffset: decoded.pixels.byteOffset,
                 byteLength: decoded.pixels.byteLength,
+                pixelFormat: decoded.pixelFormat === 'bayer16' ? 'rgba32float' : decoded.pixelFormat,
                 colorSpace: decoded.colorSpace,
                 colorSpaceDetected: !!metadata.chromaticities,
                 compression: `${decoded.bitsPerSample}-bit float`,
