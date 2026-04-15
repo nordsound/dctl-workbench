@@ -11,6 +11,12 @@ import { createHDRManager, type HDRManager } from './shared';
 import { PanController, type PanState } from './shared/pan-controller';
 import { calculateZoomScrollAdjustment } from './shared/zoom-math';
 import {
+    createWebGL2PreTransformCache,
+    runPreTransformWebGL2,
+    type PreTransformMatrix,
+    type WebGL2PreTransformCache,
+} from './shared/pre-transform-runner-webgl2';
+import {
     createDctlControlsManager,
     rgbToHex,
     hexToRgb,
@@ -139,6 +145,17 @@ interface ExrImageData {
     compression?: string;
     // EXR pixel bit depth
     bitDepth?: string;
+    /**
+     * Optional 3×3 row-major matrix the renderer applies to RGB channels
+     * via a compute pre-pass before the OCIO display transform runs.
+     * Introduced with plugin API 0.3.0 (DecodedImage.preTransformMatrix).
+     * When absent, no pre-pass runs and behavior matches API 0.2.x.
+     */
+    preTransformMatrix?: readonly [
+        readonly [number, number, number],
+        readonly [number, number, number],
+        readonly [number, number, number]
+    ];
 }
 
 // Reconstructed pixel data for reading (always Float32 after normalization for pixel inspector)
@@ -276,6 +293,10 @@ let webgpuRenderer: WebGPURenderer | null = null;
 // WebGL state (fallback)
 let program: WebGLProgram | null = null;
 let imageTexture: WebGLTexture | null = null;
+
+// WebGL2 pre-transform cache (program, VBO, uniform locations). Lives for
+// the webview's lifetime; allocated lazily on first pre-transform invocation.
+const webgl2PreTransformCache: WebGL2PreTransformCache = createWebGL2PreTransformCache();
 let ocioTextures: WebGLTexture[] = [];
 let ocio3DTextures: WebGLTexture[] = [];
 let vao: WebGLVertexArrayObject | null = null;
@@ -570,6 +591,12 @@ async function loadImage(data: ExrImageData): Promise<void> {
                 pixelFormat,
             });
 
+            // Plugin-supplied pre-transform (T006 / plugin API 0.3.0):
+            // a compute pass that applies a 3×3 matrix to RGB and
+            // redirects subsequent sampling to an rgba32float
+            // intermediate. No-op when `preTransformMatrix` is absent.
+            await webgpuRenderer.applyPreTransform(data.preTransformMatrix);
+
             // Use WGSL shader if available
             await webgpuRenderer.buildShader(data.wgslShaderInfo);
             webgpuRenderer.render();
@@ -583,6 +610,13 @@ async function loadImage(data: ExrImageData): Promise<void> {
                 return;
             }
             createImageTexture(data);
+
+            // Plugin-supplied pre-transform (T006 / plugin API 0.3.0):
+            // render-to-texture fragment pass that applies a 3×3 matrix
+            // to RGB and redirects subsequent sampling to the RGBA32F
+            // intermediate. No-op when `preTransformMatrix` is absent.
+            applyWebGL2PreTransform(data);
+
             buildShader(data.shaderInfo);
             render();
         }
@@ -843,6 +877,35 @@ function createImageTexture(data: ExrImageData): void {
     );
 
     setTextureParams(gl.TEXTURE_2D);
+}
+
+/**
+ * Run the WebGL2 pre-transform pass when the plugin supplied a 3×3 matrix.
+ * The source `imageTexture` is swapped for the pass output (RGBA32F FBO
+ * attachment); the old one is deleted. No-op when `preTransformMatrix` is
+ * absent or the GL context / current image texture is missing — the guard
+ * matches `WebGPURenderer.applyPreTransform`, so both renderer paths
+ * short-circuit identically on an EXR load with no plugin matrix.
+ */
+function applyWebGL2PreTransform(data: ExrImageData): void {
+    const matrix = data.preTransformMatrix as PreTransformMatrix | undefined;
+    if (!matrix || !gl || !imageTexture) return;
+
+    const output = runPreTransformWebGL2(
+        gl as unknown as Parameters<typeof runPreTransformWebGL2>[0],
+        imageTexture,
+        data.width,
+        data.height,
+        matrix,
+        webgl2PreTransformCache,
+    );
+
+    // Swap: delete the old pre-matrix source, promote the FBO output to
+    // the shader-facing imageTexture. Downstream buildShader/render will
+    // sample from it as if it were the original image.
+    const old = imageTexture;
+    imageTexture = output;
+    gl.deleteTexture(old);
 }
 
 function buildShader(shaderInfo: GpuShaderInfo): void {

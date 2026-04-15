@@ -472,15 +472,24 @@ rust/dctl-compiler/src/
 │  ┌──────────────────────────────────────────────────┐  │
 │  │             Webview: exr-viewer.ts               │  │
 │  ├──────────────────────────────────────────────────┤  │
-│  │ 1. Load EXR data                                 │  │
-│  │ 2. Build integrated shader (DCTL + OCIO)         │  │
-│  │ 3. Create WebGPU pipeline                        │  │
-│  │ 4. Render to canvas                              │  │
-│  │ 5. Update on parameter change                    │  │
+│  │ 1. Load image data (EXR / plugin-decoded RAW)    │  │
+│  │ 2. If preTransformMatrix present:                │  │
+│  │      WebGPU: compute pass → rgba32float interm.  │  │
+│  │      WebGL2: FBO fragment pass → rgba32float     │  │
+│  │ 3. Build integrated shader (DCTL + OCIO)         │  │
+│  │ 4. Create WebGPU pipeline / WebGL2 program       │  │
+│  │ 5. Render to canvas                              │  │
+│  │ 6. Update on parameter change                    │  │
 │  └──────────────────────────────────────────────────┘  │
 │                                                        │
 └────────────────────────────────────────────────────────┘
 ```
+
+Plugin-supplied `DecodedImage.preTransformMatrix` (plugin API 0.3.0+) is
+applied in step 2 as a one-shot GPU pass *before* the OCIO / DCTL chain,
+so downstream shaders are unchanged regardless of whether the input
+arrived in the plugin's own color space or already in `colorSpace`.
+See `docs/PLUGIN_DEVELOPMENT.md §3.8` for the contract.
 
 ---
 

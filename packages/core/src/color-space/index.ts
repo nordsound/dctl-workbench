@@ -5,6 +5,8 @@
  */
 
 export * from './xyz-to-aces';
+export * from './xyz-d50-to-aces';
+export * from './srgb-to-aces';
 
 // =============================================================================
 // Color Space Matrices (WGSL format)

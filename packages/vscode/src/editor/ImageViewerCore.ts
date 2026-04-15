@@ -713,6 +713,16 @@ export class ImageViewerCore {
             colorSpaceDetected: boolean;
             compression: string;
             bitDepth: string;
+            /**
+             * Optional 3×3 row-major matrix the webview applies to RGB
+             * channels before the OCIO display transform. See plugin
+             * API DecodedImage.preTransformMatrix for semantics.
+             */
+            preTransformMatrix?: readonly [
+                readonly [number, number, number],
+                readonly [number, number, number],
+                readonly [number, number, number]
+            ];
         },
         wasmDir: string
     ): Promise<void> {
@@ -749,6 +759,7 @@ export class ImageViewerCore {
                 byteOffset: imageData.byteOffset,
                 byteLength: imageData.byteLength,
                 pixelFormat: imageData.pixelFormat,
+                preTransformMatrix: imageData.preTransformMatrix,
                 colorSpace: imageData.colorSpace,
                 colorSpaceDetected: imageData.colorSpaceDetected,
                 compression: imageData.compression,

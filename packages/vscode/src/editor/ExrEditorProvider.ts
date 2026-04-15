@@ -297,6 +297,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 colorSpaceDetected: !!metadata.chromaticities,
                 compression: `${decoded.bitsPerSample}-bit float`,
                 bitDepth: decoded.pixelFormat === 'rgba32float' ? 'FLOAT' : 'HALF',
+                preTransformMatrix: decoded.preTransformMatrix,
             }, wasmDir);
             perf.lap('OCIO + shader + postMessage');
             perf.end();
