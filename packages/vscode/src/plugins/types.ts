@@ -10,12 +10,14 @@
  * API stability: Pre-Release. Breaking changes may occur until 1.0.0.
  */
 
+import type * as vscode from 'vscode';
+
 // =============================================================================
 // API Version
 // =============================================================================
 
 /** Current plugin API version (SemVer). */
-export const PLUGIN_API_VERSION = '0.3.0' as const;
+export const PLUGIN_API_VERSION = '0.4.0' as const;
 
 /**
  * Check whether a host's API version is compatible with the version a plugin
@@ -452,4 +454,56 @@ export interface DctlWorkbenchApi {
 
     /** Plugin API version (SemVer). */
     readonly apiVersion: string;
+
+    /**
+     * URI of the host extension's installation directory.
+     *
+     * Plugins that declare their own `customEditors` contribution create
+     * their own `WebviewPanel`s. Such panels need the host's install dir in
+     * `localResourceRoots` at creation time so the renderer can load host
+     * assets (scripts, CSS, WASM) via `panel.webview.asWebviewUri(...)`.
+     *
+     * `localResourceRoots` is effectively immutable after the panel is
+     * created, which is why the plugin must get this Uri before creating
+     * the panel rather than having the host set it post-hoc.
+     *
+     * Available since plugin API 0.4.0.
+     */
+    readonly extensionUri: vscode.Uri;
+
+    /**
+     * Render an image into a plugin-owned `WebviewPanel` using the host's
+     * renderer. The plugin keeps ownership of the panel (it created the
+     * custom-editor tab); the host drives HTML generation, message
+     * routing, and the display-transform pipeline.
+     *
+     * Preconditions:
+     *  - The plugin is registered via `registerInputPlugin(plugin)`.
+     *  - `panel.webview.options.localResourceRoots` contains the host's
+     *    `out`, `wasm`, and `media` subfolders (derived from
+     *    `extensionUri`). Missing roots cause the webview to refuse to
+     *    load the host's scripts.
+     *
+     * Lifecycle:
+     *  - The returned `Disposable` must be disposed when the panel is
+     *    disposed. It releases file watchers, message listeners, and any
+     *    per-panel GPU state the host held. Typical pattern:
+     *
+     *        const disposable = await api.renderImage(panel, uri, plugin);
+     *        panel.onDidDispose(() => disposable.dispose());
+     *
+     * @param panel       The plugin's custom-editor WebviewPanel.
+     * @param documentUri The URI of the image file being opened.
+     * @param plugin      The `InputPlugin` that can decode `documentUri`.
+     *                    Must already be registered; passed here so the
+     *                    host doesn't need a second registry lookup.
+     * @returns A Disposable that cleans up host-side listeners and state.
+     *
+     * Available since plugin API 0.4.0.
+     */
+    renderImage(
+        panel: vscode.WebviewPanel,
+        documentUri: vscode.Uri,
+        plugin: InputPlugin,
+    ): Promise<vscode.Disposable>;
 }

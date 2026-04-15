@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Plugin API 0.4.0 — `DctlWorkbenchApi.extensionUri` + `renderImage`** (T013).
+  Plugin extensions can now host their own `customEditor` contributions
+  and reuse the host's renderer by calling
+  `api.renderImage(panel, uri, plugin)` from inside their own
+  `resolveCustomEditor`. `api.extensionUri` returns the host extension's
+  install directory so the plugin can include it in the panel's
+  `localResourceRoots` at creation time (VS Code freezes resource roots
+  after the panel is created — they can't be set post-hoc by the host).
+  This replaces the T011 `vscode.openWith` redirect proxy, eliminating
+  the placeholder-tab / twin-tab class of bugs without moving RAW file
+  selectors into the host manifest (which would regress native fallback
+  when the plugin isn't installed).
 - **Plugin API 0.3.0 — `DecodedImage.preTransformMatrix`**. InputPlugins
   can now return an optional row-major 3×3 matrix that the host applies
   to each pixel's RGB channels before the OCIO display transform runs.

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import {
     DctlWorkbenchApi,
+    InputPlugin,
     PLUGIN_API_VERSION,
 } from './plugins/types';
 import {
@@ -24,20 +25,6 @@ import {
     COMPLETION_TRIGGER_CHARACTERS
 } from './dctl/language';
 import { ResolveLogWatcher } from './resolve/resolveLogWatcher';
-
-/**
- * API exposed to plugin extensions
- */
-const api: DctlWorkbenchApi = {
-    registerInputPlugin,
-    unregisterInputPlugin,
-    registerDemosaicPlugin,
-    unregisterDemosaicPlugin,
-
-    get apiVersion(): string {
-        return PLUGIN_API_VERSION;
-    },
-};
 
 // Re-export for backwards-compatibility with modules that used to import from here.
 export { getInputPlugins, getDemosaicPlugins, findInputPlugin };
@@ -67,11 +54,8 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
     );
     context.subscriptions.push(dctlCompletionProvider);
 
-    // Register the built-in EXR input plugin via the public API (dogfooding)
-    // so that external plugins and the built-in go through the same path.
-    api.registerInputPlugin(new BuiltinExrInputPlugin(context.extensionPath));
-
-    // Register EXR Custom Editor
+    // Register EXR Custom Editor. Constructed before the api object so
+    // `renderImage` can delegate to it.
     const exrEditorProvider = new ExrEditorProvider(context);
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
@@ -85,6 +69,38 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
             }
         )
     );
+
+    // API exposed to plugin extensions. Built inside activate() so it can
+    // close over the extension context (for extensionUri) and the editor
+    // provider (for renderImage's implementation). Module-scope
+    // construction would force these to flow in via a setter, which hides
+    // the activation-time dependency.
+    const api: DctlWorkbenchApi = {
+        registerInputPlugin,
+        unregisterInputPlugin,
+        registerDemosaicPlugin,
+        unregisterDemosaicPlugin,
+
+        get apiVersion(): string {
+            return PLUGIN_API_VERSION;
+        },
+
+        get extensionUri(): vscode.Uri {
+            return context.extensionUri;
+        },
+
+        renderImage(
+            panel: vscode.WebviewPanel,
+            documentUri: vscode.Uri,
+            plugin: InputPlugin,
+        ): Promise<vscode.Disposable> {
+            return exrEditorProvider.renderImage(panel, documentUri, plugin);
+        },
+    };
+
+    // Register the built-in EXR input plugin via the public API (dogfooding)
+    // so that external plugins and the built-in go through the same path.
+    api.registerInputPlugin(new BuiltinExrInputPlugin(context.extensionPath));
 
     // Register Resolve Log Watcher
     const resolveLogWatcher = new ResolveLogWatcher();
