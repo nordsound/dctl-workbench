@@ -51,9 +51,10 @@ void _withPreTransform;
 // --- Runtime tests ------------------------------------------------------------
 
 describe('plugin API: PLUGIN_API_VERSION', () => {
-    // L2.3
-    it('is bumped to 0.3.0 (DecodedImage gained the optional preTransformMatrix field)', () => {
-        assert.equal(PLUGIN_API_VERSION, '0.3.0');
+    // L2.3 — bumped again at T013 for the renderImage + extensionUri additions.
+    // Previous history: 0.2.0 (initial), 0.3.0 (preTransformMatrix), 0.4.0 (renderImage).
+    it('is bumped to 0.4.0 (DctlWorkbenchApi gained extensionUri + renderImage)', () => {
+        assert.equal(PLUGIN_API_VERSION, '0.4.0');
     });
 
     it('matches semver MAJOR.MINOR.PATCH', () => {

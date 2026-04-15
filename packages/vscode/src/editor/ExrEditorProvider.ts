@@ -240,7 +240,19 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
 
         this.core.attach(webviewPanel, document.uri.fsPath, {
             onReady: async (panel) => {
-                await this.loadImage(document, panel);
+                // Plugin is resolved at ready-time so the error path for
+                // "no plugin for this extension" surfaces as a webview
+                // error message rather than crashing the activation flow.
+                const ext = path.extname(document.uri.fsPath).slice(1);
+                const plugin = findInputPlugin(ext);
+                if (!plugin) {
+                    panel.webview.postMessage({
+                        type: 'error',
+                        message: `No input plugin registered for *.${ext}`,
+                    });
+                    return;
+                }
+                await this.loadImageWithPlugin(panel, document.uri, plugin);
             },
             onExport: async (panel) => {
                 await this.exportAsExr(panel);
@@ -248,7 +260,53 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         });
     }
 
-    private async loadImage(document: ExrDocument, panel: vscode.WebviewPanel): Promise<void> {
+    /**
+     * Render an image into an externally-owned WebviewPanel using this
+     * provider's renderer pipeline. Used by the host's plugin API
+     * (`DctlWorkbenchApi.renderImage`) so that plugin extensions with their
+     * own customEditor contributions can reuse the host viewer without
+     * proxying through `vscode.openWith`.
+     *
+     * Contract:
+     *  - `panel.webview.options.localResourceRoots` must already include the
+     *    host extension's `out`, `wasm`, and `media` subfolders. The host
+     *    exposes its `extensionUri` via `api.extensionUri` so plugins can
+     *    compute these paths at panel creation time.
+     *  - `plugin` must be registered via `registerInputPlugin` before this
+     *    call. Passing the instance directly avoids a second registry
+     *    lookup inside the renderer.
+     *
+     * The returned Disposable is a no-op today: `ImageViewerCore.attach()`
+     * already ties its per-panel state to `panel.onDidDispose`, so when the
+     * plugin's panel is disposed the core cleans up on its own. The Disposable
+     * is part of the contract so future changes (e.g., adding a file watcher
+     * that outlives the panel) can hook cleanup without breaking the API.
+     */
+    async renderImage(
+        panel: vscode.WebviewPanel,
+        documentUri: vscode.Uri,
+        plugin: InputPlugin,
+    ): Promise<vscode.Disposable> {
+        initLog(this.context.extensionPath);
+        writeLog(`Rendering image via plugin API: ${documentUri.fsPath}`);
+
+        this.core.attach(panel, documentUri.fsPath, {
+            onReady: async (p) => {
+                await this.loadImageWithPlugin(p, documentUri, plugin);
+            },
+            onExport: async (p) => {
+                await this.exportAsExr(p);
+            },
+        });
+
+        return { dispose: () => { /* panel.onDidDispose drives core cleanup */ } };
+    }
+
+    private async loadImageWithPlugin(
+        panel: vscode.WebviewPanel,
+        documentUri: vscode.Uri,
+        plugin: InputPlugin,
+    ): Promise<void> {
         const webview = panel.webview;
         const perf = new PerfTimer('loadImage');
 
@@ -256,19 +314,12 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         webview.postMessage({ type: 'startLoading' });
 
         try {
-            // Pick an input plugin based on the file extension
-            const ext = path.extname(document.uri.fsPath).slice(1);
-            const plugin: InputPlugin | undefined = findInputPlugin(ext);
-            if (!plugin) {
-                throw new Error(`No input plugin registered for *.${ext}`);
-            }
-
             // Read file data
             let fileData: Uint8Array;
-            if (document.uri.scheme === 'file') {
-                fileData = fs.readFileSync(document.uri.fsPath);
+            if (documentUri.scheme === 'file') {
+                fileData = fs.readFileSync(documentUri.fsPath);
             } else {
-                fileData = await vscode.workspace.fs.readFile(document.uri);
+                fileData = await vscode.workspace.fs.readFile(documentUri);
             }
             perf.lap('Read file from disk');
 
@@ -307,7 +358,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             perf.end();
             webview.postMessage({
                 type: 'error',
-                message: `Failed to load EXR: ${message}`,
+                message: `Failed to load image: ${message}`,
             });
         }
     }
