@@ -15,7 +15,7 @@
 // =============================================================================
 
 /** Current plugin API version (SemVer). */
-export const PLUGIN_API_VERSION = '0.2.0' as const;
+export const PLUGIN_API_VERSION = '0.3.0' as const;
 
 /**
  * Check whether a host's API version is compatible with the version a plugin
@@ -193,6 +193,28 @@ export interface DecodedImage {
 
     /** Bayer mosaic pattern (only set when `pixelFormat === 'bayer16'`). */
     cfaPattern?: CFAPattern;
+
+    /**
+     * Optional 3×3 matrix applied to each pixel's RGB channels on the GPU
+     * before the OCIO display transform. Row-major.
+     *
+     * Use this to encode a color-space conversion (camera RGB → ACES,
+     * XYZ → ACES, etc.) that the host can run as a single matrix multiply
+     * in a compute shader, avoiding any CPU-side conversion loop.
+     *
+     * Semantics:
+     *  - undefined or omitted → host treats the pixel data as already in
+     *    `colorSpace` and skips the pre-transform pass.
+     *  - present              → host applies `out = M * in.rgb` (alpha
+     *    preserved) and treats the result as `colorSpace`.
+     *
+     * Available since plugin API 0.3.0.
+     */
+    preTransformMatrix?: readonly [
+        readonly [number, number, number],
+        readonly [number, number, number],
+        readonly [number, number, number]
+    ];
 }
 
 // =============================================================================

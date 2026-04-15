@@ -24,6 +24,12 @@ import {
 import { DctlParamBuffer, buildParamMapping, type DctlParamMapping } from './dctl-param-buffer';
 import type { DctlColorValue } from './shared/dctl-controls';
 import type { DctlComputeShaderInfo } from '../shader';
+import {
+    createPreTransformCache,
+    runPreTransform,
+    type PreTransformCache,
+    type PreTransformMatrix,
+} from './shared/pre-transform-runner';
 
 interface GpuTexture {
     name: string;
@@ -128,6 +134,11 @@ export class WebGPURenderer {
     private currentFragmentShader: string = FALLBACK_FRAGMENT_SHADER;
     private currentShaderInfo: WgslShaderInfo | null = null;
 
+    // Pre-transform compute pass (plugin-supplied 3×3 color-space matrix).
+    // The cache memoizes the compiled pipeline per input format and the
+    // 48-byte uniform buffer across calls.
+    private preTransformCache: PreTransformCache = createPreTransformCache();
+
     // Compute pipeline support
     private computePipelineManager: ComputePipelineManager | null = null;
     // Note: DCTL is only supported in Fragment Pipeline (not Compute Pipeline yet)
@@ -178,10 +189,24 @@ export class WebGPURenderer {
                 return false;
             }
 
-            // Request float32-filterable feature if available
+            // Request optional features the renderer depends on. Older
+            // WebGPU drivers exposed these unconditionally; recent Chromium
+            // / Dawn builds put them behind opt-in features:
+            //
+            //   - `float32-filterable`: needed for RGC r32float LUT sampling
+            //     with linear filtering (the fallback uses nearest instead).
+            //   - `texture-formats-tier1`: needed for rgba16unorm textures.
+            //     LibRaw-derived plugins return rgba16unorm for the fast
+            //     Tier 1 path, so without this feature the plugin decode
+            //     path fails with
+            //     "Use of the 'rgba16unorm' texture format requires the
+            //     'texture-formats-tier1' feature to be enabled on [Device]."
             const features: GPUFeatureName[] = [];
             if (adapter.features.has('float32-filterable')) {
                 features.push('float32-filterable');
+            }
+            if (adapter.features.has('texture-formats-tier1' as GPUFeatureName)) {
+                features.push('texture-formats-tier1' as GPUFeatureName);
             }
 
             this.device = await adapter.requestDevice({
@@ -604,6 +629,37 @@ export class WebGPURenderer {
             { bytesPerRow: data.width * 16 },
             [data.width, data.height]
         );
+    }
+
+    /**
+     * Apply a plugin-supplied 3×3 color-space matrix to `imageTexture`
+     * via a compute pass, redirecting subsequent sampling to an
+     * rgba32float intermediate that already carries the transformed
+     * RGB. Must be called after `createImageTexture` and before the
+     * render / compute pipeline samples from the image.
+     *
+     * Safe to call repeatedly; each call replaces the previous
+     * intermediate.
+     *
+     * When `matrix` is undefined the method is a no-op — the caller can
+     * pass the raw plugin value without a prior null check.
+     */
+    async applyPreTransform(matrix: PreTransformMatrix | undefined): Promise<void> {
+        if (!matrix || !this.device || !this.imageTexture) return;
+
+        // Delegate the pipeline/dispatch mechanics to the shared runner so
+        // this method stays focused on the renderer's own state transitions.
+        const output = runPreTransform(
+            this.device,
+            this.imageTexture,
+            matrix,
+            this.preTransformCache,
+        );
+
+        // Swap in the transformed texture. The old one is no longer needed.
+        const old = this.imageTexture;
+        this.imageTexture = output;
+        old.destroy();
     }
 
     /**

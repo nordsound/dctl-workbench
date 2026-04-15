@@ -131,6 +131,12 @@ export function createMockExrInputPlugin(options?: {
     getImageData?: () => Promise<any>;
     getMetadata?: () => any;
     canHandle?: (ext: string) => boolean;
+    /** When provided, the default getImageData() includes this preTransformMatrix. */
+    preTransformMatrix?: readonly [
+        readonly [number, number, number],
+        readonly [number, number, number],
+        readonly [number, number, number]
+    ];
 }) {
     const getData = options?.getData ?? (() => DEFAULT_MOCK_EXR_DATA);
     let parsed: any = null;
@@ -151,7 +157,7 @@ export function createMockExrInputPlugin(options?: {
         }
         // Mirror BuiltinExrInputPlugin: if chromaticities missing, fall back to sRGB
         const colorSpace = parsed.chromaticities ? 'ACES2065-1' : 'sRGB - Texture';
-        return {
+        const result: any = {
             pixels: rgba,
             pixelFormat: 'rgba32float',
             width,
@@ -160,6 +166,10 @@ export function createMockExrInputPlugin(options?: {
             bitsPerSample: parsed.pixelTypeName === 'HALF' ? 16 : 32,
             colorSpace,
         };
+        if (options?.preTransformMatrix) {
+            result.preTransformMatrix = options.preTransformMatrix;
+        }
+        return result;
     };
     const defaultGetMetadata = () => ({
         chromaticities: parsed?.chromaticities,
