@@ -11,7 +11,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext } from '../helpers/vscode-mocks';
+import { FakeEventEmitter, FakeUri, createMockWebviewPanel, createMockContext, createMockExrInputPlugin } from '../helpers/vscode-mocks';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -193,6 +193,22 @@ const loggerStub = {
     writeLog: (msg: string) => { spy.logMessages.push(msg); },
 };
 
+const mockPlugin = createMockExrInputPlugin();
+
+const registryStub = {
+    '@noCallThru': true,
+    '@global': true,
+    findInputPlugin: (ext: string) => ext.toLowerCase() === 'exr' ? mockPlugin : undefined,
+    registerInputPlugin: () => true,
+    unregisterInputPlugin: () => true,
+    registerDemosaicPlugin: () => true,
+    unregisterDemosaicPlugin: () => true,
+    getInputPlugins: () => [mockPlugin],
+    getDemosaicPlugins: () => [],
+    disposeAllPlugins: () => {},
+    __resetRegistryForTests: () => {},
+};
+
 // ---------------------------------------------------------------------------
 // Load ExrEditorProvider with all stubs injected
 // ---------------------------------------------------------------------------
@@ -204,6 +220,7 @@ const { ExrEditorProvider } = proxyquire('../../editor/ExrEditorProvider', {
     '../exr': exrStub,
     '../dctl/preprocessor': preprocessorStub,
     '../dctl/types': dctlTypesStub,
+    '../plugins/registry': registryStub,
     'fs': fsStub,
     '../shared/logger': loggerStub,
 });
@@ -574,6 +591,120 @@ describe('ExrEditorProvider — message handlers', () => {
             await flushAsync();
 
             assert.equal(spy.warningMessages.length, warningsBefore, 'no warning expected');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // rendererInitialized (A4)
+    // -----------------------------------------------------------------------
+
+    describe('rendererInitialized', () => {
+        it('stores the renderer mode reported by the webview', async () => {
+            panel.simulateReceiveMessage({ type: 'rendererInitialized', mode: 'webgpu' });
+            await flushAsync();
+            // Core exposes the mode via the public accessor
+            assert.equal((provider as any).core.getRendererMode(panel), 'webgpu');
+        });
+
+        it('defaults to webgl2 when the webview has not yet reported', async () => {
+            // Fresh panel, no rendererInitialized message sent yet
+            const freshProvider = new ExrEditorProvider(createMockContext());
+            const freshPanel = createMockWebviewPanel();
+            const uri = FakeUri.file('/tmp/x.exr');
+            const token = new vscodeMock.CancellationTokenSource().token;
+            const doc = await freshProvider.openCustomDocument(uri, {}, token);
+            await freshProvider.resolveCustomEditor(doc, freshPanel, token);
+            assert.equal((freshProvider as any).core.getRendererMode(freshPanel), 'webgl2');
+            freshPanel.dispose();
+        });
+
+        it('ignores unknown modes', async () => {
+            panel.simulateReceiveMessage({ type: 'rendererInitialized', mode: 'vulkan' });
+            await flushAsync();
+            assert.equal((provider as any).core.getRendererMode(panel), 'webgl2');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // preTransformMatrix relay (T006 Phase 3 — L4)
+    // -----------------------------------------------------------------------
+
+    describe('preTransformMatrix relay', () => {
+        it('omits preTransformMatrix from the loadImage payload when the plugin returns none', () => {
+            // The default mockPlugin (set up at module scope) does not
+            // attach a preTransformMatrix, so the loadImage message
+            // posted during the beforeEach should not carry one.
+            const loadMsg = (panel.messages as any[]).find((m: any) => m?.type === 'loadImage');
+            assert.ok(loadMsg, 'loadImage message must be present');
+            assert.equal(loadMsg.data.preTransformMatrix, undefined);
+        });
+
+        it('forwards preTransformMatrix from plugin → core → loadImage payload', async () => {
+            // Build a fresh provider whose registered plugin does return a matrix.
+            const matrix: readonly [
+                readonly [number, number, number],
+                readonly [number, number, number],
+                readonly [number, number, number]
+            ] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+
+            const matrixPlugin = createMockExrInputPlugin({ preTransformMatrix: matrix });
+            const previousFind = (registryStub as any).findInputPlugin;
+            (registryStub as any).findInputPlugin = (ext: string) =>
+                ext.toLowerCase() === 'exr' ? matrixPlugin : undefined;
+
+            try {
+                const matrixProvider = new ExrEditorProvider(createMockContext());
+                const matrixPanel = createMockWebviewPanel();
+                const uri = FakeUri.file('/tmp/with-matrix.exr');
+                const token = new vscodeMock.CancellationTokenSource().token;
+                const doc = await matrixProvider.openCustomDocument(uri, {}, token);
+                await matrixProvider.resolveCustomEditor(doc, matrixPanel, token);
+                matrixPanel.simulateReceiveMessage({ type: 'ready' });
+                await flushAsync();
+
+                const loadMsg = (matrixPanel.messages as any[]).find((m: any) => m?.type === 'loadImage');
+                assert.ok(loadMsg, 'loadImage message must be present');
+                assert.deepEqual(loadMsg.data.preTransformMatrix, matrix);
+
+                matrixPanel.dispose();
+            } finally {
+                (registryStub as any).findInputPlugin = previousFind;
+            }
+        });
+
+        it('preTransformMatrix payload survives JSON serialization', async () => {
+            // Mocked postMessage stores a reference. Ensure the matrix value is
+            // a plain nested array (no TypedArray, Float64Array, etc.) so it
+            // round-trips cleanly through structured clone over postMessage.
+            const matrix: readonly [
+                readonly [number, number, number],
+                readonly [number, number, number],
+                readonly [number, number, number]
+            ] = [[0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5]];
+
+            const plugin = createMockExrInputPlugin({ preTransformMatrix: matrix });
+            const previousFind = (registryStub as any).findInputPlugin;
+            (registryStub as any).findInputPlugin = (ext: string) =>
+                ext.toLowerCase() === 'exr' ? plugin : undefined;
+
+            try {
+                const localProvider = new ExrEditorProvider(createMockContext());
+                const localPanel = createMockWebviewPanel();
+                const uri = FakeUri.file('/tmp/json.exr');
+                const token = new vscodeMock.CancellationTokenSource().token;
+
+                const doc = await localProvider.openCustomDocument(uri, {}, token);
+                await localProvider.resolveCustomEditor(doc, localPanel, token);
+                localPanel.simulateReceiveMessage({ type: 'ready' });
+                await flushAsync();
+
+                const loadMsg = (localPanel.messages as any[]).find((m: any) => m?.type === 'loadImage');
+                const roundTripped = JSON.parse(JSON.stringify(loadMsg.data.preTransformMatrix));
+                assert.deepEqual(roundTripped, [[0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5]]);
+                localPanel.dispose();
+            } finally {
+                (registryStub as any).findInputPlugin = previousFind;
+            }
         });
     });
 });

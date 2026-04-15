@@ -2,11 +2,21 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
-    InputPlugin,
-    DemosaicPlugin,
     DctlWorkbenchApi,
+    InputPlugin,
     PLUGIN_API_VERSION,
 } from './plugins/types';
+import {
+    registerInputPlugin,
+    unregisterInputPlugin,
+    registerDemosaicPlugin,
+    unregisterDemosaicPlugin,
+    getInputPlugins,
+    getDemosaicPlugins,
+    findInputPlugin,
+    disposeAllPlugins,
+} from './plugins/registry';
+import { BuiltinExrInputPlugin } from './plugins/BuiltinExrInputPlugin';
 import { ExrEditorProvider } from './editor/ExrEditorProvider';
 import { DctlNativeDiagnosticsProvider } from './dctl';
 import {
@@ -15,84 +25,9 @@ import {
     COMPLETION_TRIGGER_CHARACTERS
 } from './dctl/language';
 import { ResolveLogWatcher } from './resolve/resolveLogWatcher';
-// Plugin registries
-const inputPlugins = new Map<string, InputPlugin>();
-const demosaicPlugins = new Map<string, DemosaicPlugin>();
 
-/**
- * API exposed to plugin extensions
- */
-const api: DctlWorkbenchApi = {
-    registerInputPlugin(plugin: InputPlugin): boolean {
-        if (inputPlugins.has(plugin.id)) {
-            console.warn(`Input plugin with id "${plugin.id}" is already registered`);
-            return false;
-        }
-        inputPlugins.set(plugin.id, plugin);
-        console.log(`Registered input plugin: ${plugin.name} (${plugin.id})`);
-        return true;
-    },
-
-    unregisterInputPlugin(id: string): boolean {
-        const plugin = inputPlugins.get(id);
-        if (plugin) {
-            plugin.dispose();
-            inputPlugins.delete(id);
-            console.log(`Unregistered input plugin: ${id}`);
-            return true;
-        }
-        return false;
-    },
-
-    registerDemosaicPlugin(plugin: DemosaicPlugin): boolean {
-        if (demosaicPlugins.has(plugin.id)) {
-            console.warn(`Demosaic plugin with id "${plugin.id}" is already registered`);
-            return false;
-        }
-        demosaicPlugins.set(plugin.id, plugin);
-        console.log(`Registered demosaic plugin: ${plugin.name} (${plugin.id})`);
-        return true;
-    },
-
-    unregisterDemosaicPlugin(id: string): boolean {
-        const deleted = demosaicPlugins.delete(id);
-        if (deleted) {
-            console.log(`Unregistered demosaic plugin: ${id}`);
-        }
-        return deleted;
-    },
-
-    get apiVersion(): string {
-        return PLUGIN_API_VERSION;
-    },
-};
-
-/**
- * Get registered input plugins
- */
-export function getInputPlugins(): InputPlugin[] {
-    return Array.from(inputPlugins.values());
-}
-
-/**
- * Get registered demosaic plugins
- */
-export function getDemosaicPlugins(): DemosaicPlugin[] {
-    return Array.from(demosaicPlugins.values());
-}
-
-/**
- * Find an input plugin that can handle the given file
- */
-export function findInputPlugin(extension: string, data?: Uint8Array): InputPlugin | undefined {
-    const ext = extension.toLowerCase().replace(/^\./, '');
-    for (const plugin of inputPlugins.values()) {
-        if (plugin.canHandle(ext, data)) {
-            return plugin;
-        }
-    }
-    return undefined;
-}
+// Re-export for backwards-compatibility with modules that used to import from here.
+export { getInputPlugins, getDemosaicPlugins, findInputPlugin };
 
 /**
  * Extension activation
@@ -119,7 +54,8 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
     );
     context.subscriptions.push(dctlCompletionProvider);
 
-    // Register EXR Custom Editor
+    // Register EXR Custom Editor. Constructed before the api object so
+    // `renderImage` can delegate to it.
     const exrEditorProvider = new ExrEditorProvider(context);
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
@@ -133,6 +69,38 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
             }
         )
     );
+
+    // API exposed to plugin extensions. Built inside activate() so it can
+    // close over the extension context (for extensionUri) and the editor
+    // provider (for renderImage's implementation). Module-scope
+    // construction would force these to flow in via a setter, which hides
+    // the activation-time dependency.
+    const api: DctlWorkbenchApi = {
+        registerInputPlugin,
+        unregisterInputPlugin,
+        registerDemosaicPlugin,
+        unregisterDemosaicPlugin,
+
+        get apiVersion(): string {
+            return PLUGIN_API_VERSION;
+        },
+
+        get extensionUri(): vscode.Uri {
+            return context.extensionUri;
+        },
+
+        renderImage(
+            panel: vscode.WebviewPanel,
+            documentUri: vscode.Uri,
+            plugin: InputPlugin,
+        ): Promise<vscode.Disposable> {
+            return exrEditorProvider.renderImage(panel, documentUri, plugin);
+        },
+    };
+
+    // Register the built-in EXR input plugin via the public API (dogfooding)
+    // so that external plugins and the built-in go through the same path.
+    api.registerInputPlugin(new BuiltinExrInputPlugin(context.extensionPath));
 
     // Register Resolve Log Watcher
     const resolveLogWatcher = new ResolveLogWatcher();
@@ -338,16 +306,6 @@ export function activate(context: vscode.ExtensionContext): DctlWorkbenchApi {
  * Extension deactivation
  */
 export function deactivate(): void {
-    // Dispose all input plugins
-    for (const plugin of inputPlugins.values()) {
-        try {
-            plugin.dispose();
-        } catch (e) {
-            console.error(`Error disposing plugin ${plugin.id}:`, e);
-        }
-    }
-    inputPlugins.clear();
-    demosaicPlugins.clear();
-
+    disposeAllPlugins();
     console.log('dctl-workbench deactivated');
 }

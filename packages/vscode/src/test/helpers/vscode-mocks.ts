@@ -95,6 +95,100 @@ export function createMockWebviewPanel() {
     return panel;
 }
 
+/**
+ * Default mock EXR data used by createMockExrInputPlugin.
+ */
+export const DEFAULT_MOCK_EXR_DATA = {
+    width: 1920,
+    height: 1080,
+    channels: ['R', 'G', 'B'],
+    pixels: new Float32Array(1920 * 1080 * 3),
+    chromaticities: {
+        redX: 0.7347, redY: 0.2653,
+        greenX: 0.0, greenY: 1.0,
+        blueX: 0.0001, blueY: -0.077,
+        whiteX: 0.32168, whiteY: 0.33767,
+    } as const,
+    compressionName: 'ZIP' as string,
+    pixelTypeName: 'HALF' as string,
+};
+
+/**
+ * Create a minimal mock InputPlugin for EXR file tests.
+ *
+ * The plugin:
+ * - claims to handle the `exr` extension
+ * - on `load()` snapshots the result of `getData()` (defaults to DEFAULT_MOCK_EXR_DATA)
+ * - on `getImageData()` pads to 4-channel RGBA (matching BuiltinExrInputPlugin)
+ * - on `getMetadata()` returns the chromaticities captured during load
+ *
+ * Override `load`/`getImageData`/`getMetadata` individually to exercise
+ * error paths without rebuilding the whole plugin object.
+ */
+export function createMockExrInputPlugin(options?: {
+    getData?: () => any;
+    load?: (data: Uint8Array) => Promise<void>;
+    getImageData?: () => Promise<any>;
+    getMetadata?: () => any;
+    canHandle?: (ext: string) => boolean;
+    /** When provided, the default getImageData() includes this preTransformMatrix. */
+    preTransformMatrix?: readonly [
+        readonly [number, number, number],
+        readonly [number, number, number],
+        readonly [number, number, number]
+    ];
+}) {
+    const getData = options?.getData ?? (() => DEFAULT_MOCK_EXR_DATA);
+    let parsed: any = null;
+
+    const defaultLoad = async (_data: Uint8Array) => {
+        parsed = getData();
+    };
+    const defaultGetImageData = async () => {
+        if (!parsed) throw new Error('mock plugin: load() was not called');
+        const { width, height, pixels } = parsed;
+        const channels = parsed.channels?.length ?? 3;
+        const rgba = new Float32Array(width * height * 4);
+        for (let i = 0; i < width * height; i++) {
+            rgba[i * 4]     = pixels[i * channels] ?? 0;
+            rgba[i * 4 + 1] = channels > 1 ? (pixels[i * channels + 1] ?? 0) : 0;
+            rgba[i * 4 + 2] = channels > 2 ? (pixels[i * channels + 2] ?? 0) : 0;
+            rgba[i * 4 + 3] = 1.0;
+        }
+        // Mirror BuiltinExrInputPlugin: if chromaticities missing, fall back to sRGB
+        const colorSpace = parsed.chromaticities ? 'ACES2065-1' : 'sRGB - Texture';
+        const result: any = {
+            pixels: rgba,
+            pixelFormat: 'rgba32float',
+            width,
+            height,
+            channels: 4,
+            bitsPerSample: parsed.pixelTypeName === 'HALF' ? 16 : 32,
+            colorSpace,
+        };
+        if (options?.preTransformMatrix) {
+            result.preTransformMatrix = options.preTransformMatrix;
+        }
+        return result;
+    };
+    const defaultGetMetadata = () => ({
+        chromaticities: parsed?.chromaticities,
+    });
+
+    return {
+        id: 'test.mock-exr',
+        name: 'Mock EXR',
+        version: '1.0.0',
+        license: 'MIT',
+        supportedExtensions: ['exr'],
+        canHandle: options?.canHandle ?? ((ext: string) => ext.toLowerCase() === 'exr'),
+        load: options?.load ?? defaultLoad,
+        getImageData: options?.getImageData ?? defaultGetImageData,
+        getMetadata: options?.getMetadata ?? defaultGetMetadata,
+        dispose: () => { parsed = null; },
+    };
+}
+
 export function createMockContext(extensionPath = '/mock/dctl-workbench') {
     return {
         subscriptions: [] as Array<{ dispose(): void }>,

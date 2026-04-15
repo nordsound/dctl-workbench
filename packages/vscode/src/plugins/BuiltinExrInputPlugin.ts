@@ -88,27 +88,22 @@ export class BuiltinExrInputPlugin implements InputPlugin {
             );
         }
 
-        // Pad to RGBA if needed (plugin API requires 4 channels for rgba32float)
-        let rgbaPixels: Float32Array;
-        if (srcChannels === 4) {
-            rgbaPixels = pixels;
-        } else if (srcChannels === 3) {
-            rgbaPixels = new Float32Array(width * height * 4);
-            for (let i = 0; i < width * height; i++) {
-                rgbaPixels[i * 4] = pixels[i * 3];
-                rgbaPixels[i * 4 + 1] = pixels[i * 3 + 1];
-                rgbaPixels[i * 4 + 2] = pixels[i * 3 + 2];
-                rgbaPixels[i * 4 + 3] = 1.0;
-            }
-        } else {
-            // 1 or 2 channels — fill remaining with 0/1
-            rgbaPixels = new Float32Array(width * height * 4);
-            for (let i = 0; i < width * height; i++) {
-                rgbaPixels[i * 4] = pixels[i * srcChannels] || 0;
-                rgbaPixels[i * 4 + 1] = srcChannels > 1 ? pixels[i * srcChannels + 1] : 0;
-                rgbaPixels[i * 4 + 2] = srcChannels > 2 ? pixels[i * srcChannels + 2] : 0;
-                rgbaPixels[i * 4 + 3] = 1.0;
-            }
+        // OpenEXR stores channels alphabetically, so the source interleave is
+        // typically A,B,G,R (4ch) or B,G,R (3ch). Locate each named channel
+        // by index so we can emit a canonical RGBA-order buffer, independent
+        // of what order the file happened to list channels.
+        const idxR = channels.indexOf('R');
+        const idxG = channels.indexOf('G');
+        const idxB = channels.indexOf('B');
+        const idxA = channels.indexOf('A');
+        const rgbaPixels = new Float32Array(width * height * 4);
+
+        for (let i = 0; i < width * height; i++) {
+            const base = i * srcChannels;
+            rgbaPixels[i * 4]     = idxR >= 0 ? pixels[base + idxR] : 0;
+            rgbaPixels[i * 4 + 1] = idxG >= 0 ? pixels[base + idxG] : 0;
+            rgbaPixels[i * 4 + 2] = idxB >= 0 ? pixels[base + idxB] : 0;
+            rgbaPixels[i * 4 + 3] = idxA >= 0 ? pixels[base + idxA] : 1.0;
         }
 
         // Identify OCIO color space from chromaticities

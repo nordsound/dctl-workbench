@@ -11,6 +11,12 @@ import { createHDRManager, type HDRManager } from './shared';
 import { PanController, type PanState } from './shared/pan-controller';
 import { calculateZoomScrollAdjustment } from './shared/zoom-math';
 import {
+    createWebGL2PreTransformCache,
+    runPreTransformWebGL2,
+    type PreTransformMatrix,
+    type WebGL2PreTransformCache,
+} from './shared/pre-transform-runner-webgl2';
+import {
     createDctlControlsManager,
     rgbToHex,
     hexToRgb,
@@ -110,6 +116,8 @@ interface WgslShaderInfo {
 
 type DctlColorSpace = 'ACES2065-1' | 'ACEScg' | 'ACEScc' | 'ACEScct' | 'linear_sRGB';
 
+type PixelFormat = 'rgba32float' | 'rgba16unorm';
+
 interface ExrImageData {
     width: number;
     height: number;
@@ -118,6 +126,11 @@ interface ExrImageData {
     buffer: ArrayBuffer;
     byteOffset: number;
     byteLength: number;
+    /**
+     * Pixel format of the transferred buffer. Defaults to 'rgba32float'
+     * for backwards compatibility with the pre-A5 host message.
+     */
+    pixelFormat?: PixelFormat;
     colorSpace: string;
     colorSpaceDetected: boolean;
     colorSpaces: string[];
@@ -132,9 +145,20 @@ interface ExrImageData {
     compression?: string;
     // EXR pixel bit depth
     bitDepth?: string;
+    /**
+     * Optional 3×3 row-major matrix the renderer applies to RGB channels
+     * via a compute pre-pass before the OCIO display transform runs.
+     * Introduced with plugin API 0.3.0 (DecodedImage.preTransformMatrix).
+     * When absent, no pre-pass runs and behavior matches API 0.2.x.
+     */
+    preTransformMatrix?: readonly [
+        readonly [number, number, number],
+        readonly [number, number, number],
+        readonly [number, number, number]
+    ];
 }
 
-// Reconstructed pixel data for reading
+// Reconstructed pixel data for reading (always Float32 after normalization for pixel inspector)
 let pixelData: Float32Array | null = null;
 
 const vscode = acquireVsCodeApi() as VSCodeAPI;
@@ -269,6 +293,10 @@ let webgpuRenderer: WebGPURenderer | null = null;
 // WebGL state (fallback)
 let program: WebGLProgram | null = null;
 let imageTexture: WebGLTexture | null = null;
+
+// WebGL2 pre-transform cache (program, VBO, uniform locations). Lives for
+// the webview's lifetime; allocated lazily on first pre-transform invocation.
+const webgl2PreTransformCache: WebGL2PreTransformCache = createWebGL2PreTransformCache();
 let ocioTextures: WebGLTexture[] = [];
 let ocio3DTextures: WebGLTexture[] = [];
 let vao: WebGLVertexArrayObject | null = null;
@@ -445,6 +473,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Keyboard shortcuts for debugging/testing
     document.addEventListener('keydown', onKeyDown);
 
+    // Notify extension of renderer mode (lets the host pick an output
+    // format for RAW / large images that can benefit from rgba16unorm).
+    vscode.postMessage({ type: 'rendererInitialized', mode: rendererMode });
+
+    // Show a warning banner when we had to fall back to WebGL2 so users
+    // understand why loading is slower / uses more memory.
+    if (rendererMode === 'webgl2') {
+        showWarningBanner(
+            'WebGPU is unavailable. Falling back to WebGL2 (slower, higher memory usage). ' +
+            'Restart VS Code if this is unexpected.'
+        );
+    }
+
     // Notify extension we're ready
     vscode.postMessage({ type: 'ready' });
 });
@@ -497,9 +538,22 @@ window.addEventListener('message', (event) => {
     }
 });
 
+/**
+ * Normalize a uint16 RGBA buffer to float32 [0,1]. Used to keep the pixel
+ * inspector working under the rgba16unorm path — it is NOT used for GPU
+ * upload (the GPU normalizes rgba16unorm textures natively).
+ */
+function normalizeU16ToF32(src: Uint16Array): Float32Array {
+    const out = new Float32Array(src.length);
+    const scale = 1 / 65535;
+    for (let i = 0; i < src.length; i++) out[i] = src[i] * scale;
+    return out;
+}
+
 async function loadImage(data: ExrImageData): Promise<void> {
     try {
-        log(`loadImage: ${data.width}x${data.height}, ${data.channels}ch, colorSpace=${data.colorSpace}, detected=${data.colorSpaceDetected}, renderer=${rendererMode}`);
+        const pixelFormat: PixelFormat = data.pixelFormat ?? 'rgba32float';
+        log(`loadImage: ${data.width}x${data.height}, ${data.channels}ch, ${pixelFormat}, colorSpace=${data.colorSpace}, detected=${data.colorSpaceDetected}, renderer=${rendererMode}`);
 
         currentImage = data;
 
@@ -516,9 +570,16 @@ async function loadImage(data: ExrImageData): Promise<void> {
         canvas.height = data.height;
         updateZoom();
 
-        // Reconstruct Float32Array from ArrayBuffer
-        const srcPixels = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
-        pixelData = srcPixels;
+        // Reconstruct the pixel array from ArrayBuffer — Uint16 or Float32 depending on pixelFormat.
+        const srcPixels: Uint16Array | Float32Array = pixelFormat === 'rgba16unorm'
+            ? new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2)
+            : new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+
+        // Pixel inspector needs Float32 values; normalize uint16 → [0,1] float32 lazily
+        // only when we need to update inspector state.
+        pixelData = pixelFormat === 'rgba16unorm'
+            ? normalizeU16ToF32(srcPixels as Uint16Array)
+            : (srcPixels as Float32Array);
 
         if (rendererMode === 'webgpu' && webgpuRenderer) {
             // WebGPU path
@@ -527,14 +588,35 @@ async function loadImage(data: ExrImageData): Promise<void> {
                 height: data.height,
                 channels: data.channels,
                 pixels: srcPixels,
+                pixelFormat,
             });
+
+            // Plugin-supplied pre-transform (T006 / plugin API 0.3.0):
+            // a compute pass that applies a 3×3 matrix to RGB and
+            // redirects subsequent sampling to an rgba32float
+            // intermediate. No-op when `preTransformMatrix` is absent.
+            await webgpuRenderer.applyPreTransform(data.preTransformMatrix);
 
             // Use WGSL shader if available
             await webgpuRenderer.buildShader(data.wgslShaderInfo);
             webgpuRenderer.render();
         } else {
-            // WebGL2 fallback
+            // WebGL2 fallback — only handles Float32. If a plugin returned
+            // rgba16unorm under a WebGL2 host (should not happen since the
+            // host hints rgba32float), surface a clear error instead of
+            // silently mis-uploading.
+            if (pixelFormat !== 'rgba32float') {
+                showError(`WebGL2 renderer does not support pixelFormat '${pixelFormat}'`);
+                return;
+            }
             createImageTexture(data);
+
+            // Plugin-supplied pre-transform (T006 / plugin API 0.3.0):
+            // render-to-texture fragment pass that applies a 3×3 matrix
+            // to RGB and redirects subsequent sampling to the RGBA32F
+            // intermediate. No-op when `preTransformMatrix` is absent.
+            applyWebGL2PreTransform(data);
+
             buildShader(data.shaderInfo);
             render();
         }
@@ -795,6 +877,35 @@ function createImageTexture(data: ExrImageData): void {
     );
 
     setTextureParams(gl.TEXTURE_2D);
+}
+
+/**
+ * Run the WebGL2 pre-transform pass when the plugin supplied a 3×3 matrix.
+ * The source `imageTexture` is swapped for the pass output (RGBA32F FBO
+ * attachment); the old one is deleted. No-op when `preTransformMatrix` is
+ * absent or the GL context / current image texture is missing — the guard
+ * matches `WebGPURenderer.applyPreTransform`, so both renderer paths
+ * short-circuit identically on an EXR load with no plugin matrix.
+ */
+function applyWebGL2PreTransform(data: ExrImageData): void {
+    const matrix = data.preTransformMatrix as PreTransformMatrix | undefined;
+    if (!matrix || !gl || !imageTexture) return;
+
+    const output = runPreTransformWebGL2(
+        gl as unknown as Parameters<typeof runPreTransformWebGL2>[0],
+        imageTexture,
+        data.width,
+        data.height,
+        matrix,
+        webgl2PreTransformCache,
+    );
+
+    // Swap: delete the old pre-matrix source, promote the FBO output to
+    // the shader-facing imageTexture. Downstream buildShader/render will
+    // sample from it as if it were the original image.
+    const old = imageTexture;
+    imageTexture = output;
+    gl.deleteTexture(old);
 }
 
 function buildShader(shaderInfo: GpuShaderInfo): void {
@@ -1615,6 +1726,31 @@ function showError(message: string): void {
         container.innerHTML = `<div class="error-message">${message}</div>`;
     }
     console.error('EXR Viewer error:', message);
+}
+
+/**
+ * Display a non-blocking warning banner at the top of the viewer.
+ * Used for renderer-fallback notifications (see A4).
+ */
+function showWarningBanner(message: string): void {
+    // Dedup: avoid stacking if called multiple times
+    if (document.getElementById('warning-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'warning-banner';
+    banner.className = 'warning-banner';
+    banner.setAttribute('role', 'status');
+    banner.textContent = message;
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'warning-banner-dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss warning');
+    dismiss.textContent = '×';
+    dismiss.addEventListener('click', () => banner.remove());
+    banner.appendChild(dismiss);
+
+    document.body.prepend(banner);
+    log(`[banner] ${message}`);
 }
 
 // ============================================

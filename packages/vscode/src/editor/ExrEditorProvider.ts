@@ -13,7 +13,8 @@ import { EXRWriter, PixelType, initOpenEXR, setOpenEXRWasmDirectory } from '../e
 import { DctlRuntime } from '@dctl-workbench/core';
 import { parseCompressionSetting } from './settings-helpers';
 import { ImageViewerCore } from './ImageViewerCore';
-import { BuiltinExrInputPlugin } from '../plugins/BuiltinExrInputPlugin';
+import { findInputPlugin } from '../plugins/registry';
+import type { InputPlugin } from '../plugins/types';
 import { findWasmDir } from './wasm-utils';
 import { initLog, writeLog } from '../shared/logger';
 
@@ -48,11 +49,9 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
     public static readonly viewType = 'dctlWorkbench.exrEditor';
 
     private readonly core: ImageViewerCore;
-    private readonly plugin: BuiltinExrInputPlugin;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.core = new ImageViewerCore(context);
-        this.plugin = new BuiltinExrInputPlugin(context.extensionPath);
     }
 
     /**
@@ -241,7 +240,19 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
 
         this.core.attach(webviewPanel, document.uri.fsPath, {
             onReady: async (panel) => {
-                await this.loadImage(document, panel);
+                // Plugin is resolved at ready-time so the error path for
+                // "no plugin for this extension" surfaces as a webview
+                // error message rather than crashing the activation flow.
+                const ext = path.extname(document.uri.fsPath).slice(1);
+                const plugin = findInputPlugin(ext);
+                if (!plugin) {
+                    panel.webview.postMessage({
+                        type: 'error',
+                        message: `No input plugin registered for *.${ext}`,
+                    });
+                    return;
+                }
+                await this.loadImageWithPlugin(panel, document.uri, plugin);
             },
             onExport: async (panel) => {
                 await this.exportAsExr(panel);
@@ -249,7 +260,53 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         });
     }
 
-    private async loadImage(document: ExrDocument, panel: vscode.WebviewPanel): Promise<void> {
+    /**
+     * Render an image into an externally-owned WebviewPanel using this
+     * provider's renderer pipeline. Used by the host's plugin API
+     * (`DctlWorkbenchApi.renderImage`) so that plugin extensions with their
+     * own customEditor contributions can reuse the host viewer without
+     * proxying through `vscode.openWith`.
+     *
+     * Contract:
+     *  - `panel.webview.options.localResourceRoots` must already include the
+     *    host extension's `out`, `wasm`, and `media` subfolders. The host
+     *    exposes its `extensionUri` via `api.extensionUri` so plugins can
+     *    compute these paths at panel creation time.
+     *  - `plugin` must be registered via `registerInputPlugin` before this
+     *    call. Passing the instance directly avoids a second registry
+     *    lookup inside the renderer.
+     *
+     * The returned Disposable is a no-op today: `ImageViewerCore.attach()`
+     * already ties its per-panel state to `panel.onDidDispose`, so when the
+     * plugin's panel is disposed the core cleans up on its own. The Disposable
+     * is part of the contract so future changes (e.g., adding a file watcher
+     * that outlives the panel) can hook cleanup without breaking the API.
+     */
+    async renderImage(
+        panel: vscode.WebviewPanel,
+        documentUri: vscode.Uri,
+        plugin: InputPlugin,
+    ): Promise<vscode.Disposable> {
+        initLog(this.context.extensionPath);
+        writeLog(`Rendering image via plugin API: ${documentUri.fsPath}`);
+
+        this.core.attach(panel, documentUri.fsPath, {
+            onReady: async (p) => {
+                await this.loadImageWithPlugin(p, documentUri, plugin);
+            },
+            onExport: async (p) => {
+                await this.exportAsExr(p);
+            },
+        });
+
+        return { dispose: () => { /* panel.onDidDispose drives core cleanup */ } };
+    }
+
+    private async loadImageWithPlugin(
+        panel: vscode.WebviewPanel,
+        documentUri: vscode.Uri,
+        plugin: InputPlugin,
+    ): Promise<void> {
         const webview = panel.webview;
         const perf = new PerfTimer('loadImage');
 
@@ -259,18 +316,22 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
         try {
             // Read file data
             let fileData: Uint8Array;
-            if (document.uri.scheme === 'file') {
-                fileData = fs.readFileSync(document.uri.fsPath);
+            if (documentUri.scheme === 'file') {
+                fileData = fs.readFileSync(documentUri.fsPath);
             } else {
-                fileData = await vscode.workspace.fs.readFile(document.uri);
+                fileData = await vscode.workspace.fs.readFile(documentUri);
             }
             perf.lap('Read file from disk');
 
-            // Decode via input plugin
-            await this.plugin.load(new Uint8Array(fileData));
-            const decoded = await this.plugin.getImageData();
-            const metadata = this.plugin.getMetadata();
-            perf.lap(`Decode image (${decoded.width}x${decoded.height})`);
+            // Decode via the selected plugin. Hint the preferred output format
+            // based on the renderer mode so plugins capable of producing
+            // rgba16unorm can skip the float32 upscale for WebGPU.
+            const rendererMode = this.core.getRendererMode(panel);
+            const outputFormat = rendererMode === 'webgpu' ? 'rgba16unorm' : 'rgba32float';
+            await plugin.load(new Uint8Array(fileData));
+            const decoded = await plugin.getImageData({ outputFormat });
+            const metadata = plugin.getMetadata();
+            perf.lap(`Decode image (${decoded.width}x${decoded.height}, ${decoded.pixelFormat})`);
 
             const wasmDir = findWasmDir(this.context.extensionPath);
 
@@ -282,10 +343,12 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
                 buffer: decoded.pixels.buffer as ArrayBuffer,
                 byteOffset: decoded.pixels.byteOffset,
                 byteLength: decoded.pixels.byteLength,
+                pixelFormat: decoded.pixelFormat === 'bayer16' ? 'rgba32float' : decoded.pixelFormat,
                 colorSpace: decoded.colorSpace,
                 colorSpaceDetected: !!metadata.chromaticities,
                 compression: `${decoded.bitsPerSample}-bit float`,
                 bitDepth: decoded.pixelFormat === 'rgba32float' ? 'FLOAT' : 'HALF',
+                preTransformMatrix: decoded.preTransformMatrix,
             }, wasmDir);
             perf.lap('OCIO + shader + postMessage');
             perf.end();
@@ -295,7 +358,7 @@ export class ExrEditorProvider implements vscode.CustomReadonlyEditorProvider<Ex
             perf.end();
             webview.postMessage({
                 type: 'error',
-                message: `Failed to load EXR: ${message}`,
+                message: `Failed to load image: ${message}`,
             });
         }
     }
